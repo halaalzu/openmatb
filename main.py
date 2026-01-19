@@ -1,4 +1,4 @@
-#! .venv/bin/python3
+#! venv/bin/python
 
 # Copyright 2023, by Julien Cegarra & Benoît Valéry. All rights reserved.
 # Institut National Universitaire Champollion (Albi, France).
