@@ -27,8 +27,9 @@
 0:00:00;sysmon;automationlabel;AUTO
 0:00:00;sysmon;automaticsolverdelay;2000
 
-0:00:00;track;automaticsolver;False
+0:00:00;track;automaticsolver;True
 0:00:00;track;displayautomationstate;True
+0:00:00;track;automationlabel;AUTO
 0:00:00;track;taskplacement;topright
 
 
