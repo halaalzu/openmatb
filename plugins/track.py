@@ -42,10 +42,12 @@ class Track(AbstractPlugin):
             else:
                 self.joystick = None
                 if self.silent == False:
-                    errors.add_error(_('No joystick found'))
+                    pass
+                    # errors.add_error(_('No joystick found'))
 
         if self.joystick is not None:
-            self.joystick.push_handlers(self.win)
+            pass
+            # self.joystick.push_handlers(self.win)
 
     def get_response_timers(self):
         return [self.response_time]
