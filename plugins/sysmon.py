@@ -2,6 +2,25 @@
 # Institut National Universitaire Champollion (Albi, France).
 # License : CeCILL, version 2.1 (see the LICENSE file)
 
+import threading
+
+# Import winsound for Windows, or provide fallback for other platforms
+try:
+    import winsound
+    HAS_WINSOUND = True
+except ImportError:
+    HAS_WINSOUND = False
+
+def play_beep(frequency=1000, duration=200):
+    """Play a beep sound in a separate thread to avoid blocking."""
+    if HAS_WINSOUND:
+        def _beep():
+            try:
+                winsound.Beep(frequency, duration)
+            except:
+                pass
+        threading.Thread(target=_beep, daemon=True).start()
+
 from core.pseudorandom import choice, sample
 from core.container import Container
 from core.constants import COLORS as C, FONT_SIZES as F, Group as G
@@ -96,7 +115,11 @@ class Sysmon(AbstractPlugin):
         # to any gauge
         for gauge in self.get_all_gauges():
             gauge.update({'_failuretimer':None, '_onfailure':False, '_milliresponsetime':0,
-                          '_freezetimer':None})
+                          '_freezetimer':None, '_penalty_stage':0})  # Track penalty stages (0, 1, 2, 3)
+        
+        # Flash effect state
+        self._flash_timer = 0
+        self._flash_visible = False
 
         # and to scale only
         for gauge in self.get_scale_gauges():
@@ -161,11 +184,44 @@ class Sysmon(AbstractPlugin):
         if super().compute_next_plugin_state() == 0:
             return
 
+        # Handle flash timer
+        if self._flash_timer > 0:
+            self._flash_timer -= self.parameters['taskupdatetime']
+            if self._flash_timer <= 0:
+                self._flash_visible = False
+        
         # For the gauges that are on failure
         for gauge in self.get_gauges_on_failure():
             # Decrement their failure timer / increment their response time
             gauge['_failuretimer'] -= self.parameters['taskupdatetime']
             gauge['_milliresponsetime'] += self.parameters['taskupdatetime']
+            
+            # Progressive penalty system (only when automation is OFF)
+            # At 2 seconds: -10, at 3 seconds: -10 more, at 4 seconds: -10 more
+            if not self.parameters['automaticsolver']:
+                response_sec = gauge['_milliresponsetime'] / 1000.0
+                
+                # Check each penalty stage threshold
+                if response_sec >= 2.0 and gauge['_penalty_stage'] < 1:
+                    gauge['_penalty_stage'] = 1
+                    from plugins.healthbar_bus import post_event
+                    post_event('SYSMON_DELAY_1', source='sysmon')
+                    play_beep(frequency=600, duration=150)
+                    self._trigger_flash()
+                    
+                elif response_sec >= 3.0 and gauge['_penalty_stage'] < 2:
+                    gauge['_penalty_stage'] = 2
+                    from plugins.healthbar_bus import post_event
+                    post_event('SYSMON_DELAY_2', source='sysmon')
+                    play_beep(frequency=500, duration=200)
+                    self._trigger_flash()
+                    
+                elif response_sec >= 4.0 and gauge['_penalty_stage'] < 3:
+                    gauge['_penalty_stage'] = 3
+                    from plugins.healthbar_bus import post_event
+                    post_event('SYSMON_DELAY_3', source='sysmon')
+                    play_beep(frequency=400, duration=250)
+                    self._trigger_flash()
 
             # If the failure timer has ended by itself, stop failure and trigger a negative feedback
             # if possible (scale gauges)
@@ -219,6 +275,12 @@ class Sysmon(AbstractPlugin):
     def refresh_widgets(self):
         if super().refresh_widgets() == 0:
             return
+        
+        # Handle red flash effect on the entire sysmon area
+        if self._flash_visible and self.get_widget('foreground') is not None:
+            self.get_widget('foreground').set_visibility(True)
+            self.get_widget('foreground').set_border_color(C['RED'])
+        
         for scale_n, scale in self.parameters['scales'].items():
             scale['widget'].set_arrow_position(scale['_pos'])
 
@@ -254,6 +316,11 @@ class Sysmon(AbstractPlugin):
         color = light['oncolor'] if light['on'] == True else C['BACKGROUND']
         return color
 
+    def _trigger_flash(self, duration_ms=300):
+        """Trigger a red flash effect on the sysmon container."""
+        self._flash_timer = duration_ms
+        self._flash_visible = True
+
 
     def start_failure(self, gauge):
         if gauge['_onfailure'] == True:
@@ -268,6 +335,11 @@ class Sysmon(AbstractPlugin):
                                                     # a unique seed    
                     gauge['side'] = choice([-1, 1], self.alias, self.scenario_time, int(add))
                 gauge['_zone'] = gauge['side']
+            
+            # Play warning beep when failure starts (only if not auto-solving)
+            if not self.parameters['automaticsolver']:
+                play_beep(frequency=800, duration=150)  # Short alert beep
+        
         gauge['failure'] = False
 
         # Schedule failure timing
@@ -300,6 +372,8 @@ class Sysmon(AbstractPlugin):
             sdt_string, rt = 'HIT', gauge['_milliresponsetime']
         else:
             sdt_string, rt = 'MISS', float('nan')
+            # Play error beep when participant failed to respond in time (MISS)
+            play_beep(frequency=400, duration=400)  # Lower, longer tone for MISS
         sdt_string = 'HIT' if ft == 'positive' else 'MISS'
 
 
@@ -316,6 +390,7 @@ class Sysmon(AbstractPlugin):
         else:  # Scale case
             gauge['_zone'] = 0
         gauge['_milliresponsetime'] = 0
+        gauge['_penalty_stage'] = 0  # Reset penalty stage
 
 
     def get_gauges_key_value(self, key, value):
@@ -377,6 +452,10 @@ class Sysmon(AbstractPlugin):
                 # in Sysmon.do_on_key, when logging FA:
                 from plugins.healthbar_bus import post_event
                 post_event('FA', source='sysmon')
+                
+                # Play error beep and flash for False Alarm
+                play_beep(frequency=300, duration=300)
+                self._trigger_flash()
 
                 # Set a negative feedback if relevant
                 if self.parameters['feedbacks']['negative']['active']:

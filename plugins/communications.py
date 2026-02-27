@@ -2,6 +2,25 @@
 # Institut National Universitaire Champollion (Albi, France).
 # License : CeCILL, version 2.1 (see the LICENSE file)
 
+import threading
+
+# Import winsound for Windows, or provide fallback for other platforms
+try:
+    import winsound
+    HAS_WINSOUND = True
+except ImportError:
+    HAS_WINSOUND = False
+
+def play_beep(frequency=1000, duration=200):
+    """Play a beep sound in a separate thread to avoid blocking."""
+    if HAS_WINSOUND:
+        def _beep():
+            try:
+                winsound.Beep(frequency, duration)
+            except:
+                pass
+        threading.Thread(target=_beep, daemon=True).start()
+
 from string import ascii_uppercase, digits, ascii_lowercase
 from math import copysign
 from pathlib import Path
@@ -50,6 +69,10 @@ class Communications(AbstractPlugin):
                                             '_feedbacktimer': None, '_feedbacktype':None}
         self.lastradioselected = None
         self.frequency_modulation = 0.1
+        
+        # Flash effect state
+        self._flash_timer = 0
+        self._flash_visible = False
 
         self.sound_path = P['SOUNDS'].joinpath(self.parameters['voiceidiom'],
                                                self.parameters['voicegender'])
@@ -229,6 +252,12 @@ class Communications(AbstractPlugin):
     def compute_next_plugin_state(self):
         if super().compute_next_plugin_state() == 0:
             return
+        
+        # Handle flash timer
+        if self._flash_timer > 0:
+            self._flash_timer -= self.parameters['taskupdatetime']
+            if self._flash_timer <= 0:
+                self._flash_visible = False
 
         if self.parameters['callsignregex'] != self.old_regex:
             self.regenerate_callsigns()
@@ -339,6 +368,11 @@ class Communications(AbstractPlugin):
     def refresh_widgets(self):
         if super().refresh_widgets() == 0:
             return
+        
+        # Handle red flash effect on the entire communications area
+        if self._flash_visible and self.get_widget('foreground') is not None:
+            self.get_widget('foreground').set_visibility(True)
+            self.get_widget('foreground').set_border_color(C['RED'])
 
         self.widgets['communications_callsign'].set_text(self.parameters['owncallsign'])
 
@@ -382,6 +416,9 @@ class Communications(AbstractPlugin):
         self.set_feedback(target_radio, ft='negative')
         from plugins.healthbar_bus import post_event
         post_event('COMMS_MISS', source='communications')
+        # Play error beep and flash for COMMS_MISS (penalty -20)
+        play_beep(frequency=300, duration=400)
+        self._trigger_flash()
 
 
     def get_sdt_value(self, response_needed, was_a_radio_responded, correct_radio,
@@ -440,7 +477,11 @@ class Communications(AbstractPlugin):
         if sdt == 'HIT':
             post_event('CORRECT', source='communications')  # or 'HIT' if you prefer
         elif sdt in ('BAD_FREQ', 'BAD_RADIO', 'BAD_RADIO_FREQ'):
-            post_event('FA', source='communications')
+            # Post specific event for bad frequency (penalty -15)
+            post_event(sdt, source='communications')
+            # Play error beep and trigger flash
+            play_beep(frequency=350, duration=300)
+            self._trigger_flash()
         elif sdt == 'MISS':
             post_event('MISS', source='communications')
 
@@ -472,6 +513,11 @@ class Communications(AbstractPlugin):
         if self.parameters['feedbacks'][ft]['active']:
             radio['_feedbacktype'] = ft
             radio['_feedbacktimer'] = self.parameters['feedbackduration']
+
+    def _trigger_flash(self, duration_ms=300):
+        """Trigger a red flash effect on the communications container."""
+        self._flash_timer = duration_ms
+        self._flash_visible = True
 
 
     def do_on_key(self, key, state, emulate):

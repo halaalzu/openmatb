@@ -29,7 +29,6 @@
 
 0:00:00;track;automaticsolver;True
 0:00:00;track;displayautomationstate;True
-0:00:00;track;automationlabel;AUTO
 0:00:00;track;taskplacement;topright
 
 

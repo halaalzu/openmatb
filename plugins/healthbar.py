@@ -22,8 +22,11 @@ class Healthbar(AbstractPlugin):
             regen_per_sec=0.0,        # passive regen
             gain_hit=6.0,             # HIT from sysmon, etc.
             gain_correct=10.0,         # exact correct actions (e.g., comms tuned)
-            penalty_miss=12.0,        # MISS (timeout)
-            penalty_fa=10.0,           # false alarm / wrong key
+            penalty_miss=12.0,        # MISS (timeout) - final miss after all delays
+            penalty_fa=10.0,          # false alarm / wrong key
+            penalty_delay=10.0,       # penalty for each delay stage (2s, 3s, 4s)
+            penalty_bad_freq=15.0,    # wrong frequency in communications
+            penalty_comms_miss=20.0,  # communications miss
             min_health=0.0,
 
             # UI sizing/colors - improved appearance
@@ -157,11 +160,15 @@ class Healthbar(AbstractPlugin):
             elif k in ('MISS', 'FA'):
                 delta = self.parameters['penalty_miss'] if k == 'MISS' else self.parameters['penalty_fa']
                 self._health = self._clamp(self._health - delta)
-            # You can optionally map BAD_FREQ/BAD_RADIO/etc.:
+            # Progressive delay penalties for sysmon (at 2s, 3s, 4s)
+            elif k in ('SYSMON_DELAY_1', 'SYSMON_DELAY_2', 'SYSMON_DELAY_3'):
+                self._health = self._clamp(self._health - self.parameters['penalty_delay'])
+            # Bad frequency/radio in communications: -15
             elif k in ('BAD_FREQ', 'BAD_RADIO', 'BAD_RADIO_FREQ'):
-                self._health = self._clamp(self._health - (self.parameters['penalty_fa'] * 0.75))
+                self._health = self._clamp(self._health - self.parameters['penalty_bad_freq'])
+            # Communications miss: -20
             elif k == 'COMMS_MISS':
-                self._health = self._clamp(self._health - (self.parameters['penalty_miss'] * 1.5))
+                self._health = self._clamp(self._health - self.parameters['penalty_comms_miss'])
 
     def refresh_widgets(self):
         # Update healthbar widget first, before parent's visibility check
