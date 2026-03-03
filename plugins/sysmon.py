@@ -11,12 +11,38 @@ try:
 except ImportError:
     HAS_WINSOUND = False
 
-def play_beep(frequency=1000, duration=200):
-    """Play a beep sound in a separate thread to avoid blocking."""
+_audio_initialized = False
+
+def init_audio():
+    """Initialize audio system with a silent beep to wake it up."""
+    global _audio_initialized
+    if HAS_WINSOUND and not _audio_initialized:
+        def _init():
+            try:
+                # Play a very short, low-frequency beep to initialize audio
+                winsound.Beep(37, 10)  # 37Hz for 10ms - barely audible
+            except:
+                pass
+        threading.Thread(target=_init, daemon=True).start()
+        _audio_initialized = True
+
+def play_beep(frequency=1000, duration=200, repeat=1, gap=50):
+    """Play a beep sound in a separate thread to avoid blocking.
+    
+    Args:
+        frequency: Beep frequency in Hz
+        duration: Duration of each beep in ms
+        repeat: Number of times to repeat the beep
+        gap: Gap between repeated beeps in ms
+    """
     if HAS_WINSOUND:
         def _beep():
             try:
-                winsound.Beep(frequency, duration)
+                import time
+                for i in range(repeat):
+                    winsound.Beep(frequency, duration)
+                    if i < repeat - 1:
+                        time.sleep(gap / 1000.0)
             except:
                 pass
         threading.Thread(target=_beep, daemon=True).start()
@@ -115,11 +141,7 @@ class Sysmon(AbstractPlugin):
         # to any gauge
         for gauge in self.get_all_gauges():
             gauge.update({'_failuretimer':None, '_onfailure':False, '_milliresponsetime':0,
-                          '_freezetimer':None, '_penalty_stage':0})  # Track penalty stages (0, 1, 2, 3)
-        
-        # Flash effect state
-        self._flash_timer = 0
-        self._flash_visible = False
+                          '_freezetimer':None, '_penalty_stage':0})  # Track penalty stages (0, 1, 2, 3, 4)
 
         # and to scale only
         for gauge in self.get_scale_gauges():
@@ -138,6 +160,10 @@ class Sysmon(AbstractPlugin):
 
     def create_widgets(self):
         super().create_widgets()
+        
+        # Initialize audio system early to avoid delay on first beep
+        init_audio()
+        
         # Widgets coordinates (the left l coordinate is variable)
         scale_w = self.task_container.w * 0.1
         scale_b = self.task_container.b + self.task_container.h * 0.15
@@ -147,6 +173,8 @@ class Sysmon(AbstractPlugin):
         light_b = self.task_container.b + self.task_container.h * 0.75
         light_h = self.task_container.h * 0.15
 
+        from core.widgets import Frame
+        
         for scale_n, scale in self.parameters['scales'].items():
             scale_l = self.task_container.l + (self.task_container.w / 4) * (int(scale_n) - 1) + \
                       self.task_container.w/8 - scale_w/2
@@ -156,6 +184,21 @@ class Sysmon(AbstractPlugin):
                                              container=scale_container,
                                              label=scale['name'],
                                              arrow_position=scale['_pos'])
+            
+            # Create individual red flash overlay for this scale
+            flash_container = Container(f'scale_flash_{scale_n}', 
+                                        scale_l - scale_w * 0.1, 
+                                        scale_b - scale_h * 0.05,
+                                        scale_w * 1.2, 
+                                        scale_h * 1.1)
+            scale['_flash_widget'] = self.add_widget(f'scale_flash_{scale_n}', Frame,
+                                                     container=flash_container,
+                                                     border_thickness=0.08,
+                                                     border_color=C['RED'],
+                                                     fill_color=None,
+                                                     draw_order=self.m_draw+20)
+            scale['_flash_visible'] = False
+            scale['_flash_timer'] = 0
 
         for light_n, light in self.parameters['lights'].items():
             light_l = self.task_container.l + (self.task_container.w/2) * (int(light_n)-1) + \
@@ -166,6 +209,21 @@ class Sysmon(AbstractPlugin):
                                              container=light_container,
                                              label=light['name'],
                                              color=self.determine_light_color(light))
+            
+            # Create individual red flash overlay for this light (T and Y buttons)
+            flash_container = Container(f'light_flash_{light_n}',
+                                        light_l - light_w * 0.02,
+                                        light_b - light_h * 0.1,
+                                        light_w * 1.04,
+                                        light_h * 1.2)
+            light['_flash_widget'] = self.add_widget(f'light_flash_{light_n}', Frame,
+                                                     container=flash_container,
+                                                     border_thickness=0.06,
+                                                     border_color=C['RED'],
+                                                     fill_color=None,
+                                                     draw_order=self.m_draw+20)
+            light['_flash_visible'] = False
+            light['_flash_timer'] = 0
 
         # Create report widget (initially hidden)
         report_container = Container('report', self.task_container.l, 
@@ -178,17 +236,19 @@ class Sysmon(AbstractPlugin):
                        text_color=self.parameters['report']['text_color'],
                        background_color=self.parameters['report']['background_color'],
                        border_color=self.parameters['report']['border_color'])
+        
 
 
     def compute_next_plugin_state(self):
         if super().compute_next_plugin_state() == 0:
             return
 
-        # Handle flash timer
-        if self._flash_timer > 0:
-            self._flash_timer -= self.parameters['taskupdatetime']
-            if self._flash_timer <= 0:
-                self._flash_visible = False
+        # Handle flash timers for all gauges (scales and lights)
+        for gauge in list(self.parameters['scales'].values()) + list(self.parameters['lights'].values()):
+            if gauge.get('_flash_timer', 0) > 0:
+                gauge['_flash_timer'] -= self.parameters['taskupdatetime']
+                if gauge['_flash_timer'] <= 0:
+                    gauge['_flash_visible'] = False
         
         # For the gauges that are on failure
         for gauge in self.get_gauges_on_failure():
@@ -197,31 +257,30 @@ class Sysmon(AbstractPlugin):
             gauge['_milliresponsetime'] += self.parameters['taskupdatetime']
             
             # Progressive penalty system (only when automation is OFF)
-            # At 2 seconds: -10, at 3 seconds: -10 more, at 4 seconds: -10 more
+            # At 2s, 3s, 4s, 5s: health penalty only, no beep/flash until final MISS
             if not self.parameters['automaticsolver']:
                 response_sec = gauge['_milliresponsetime'] / 1000.0
                 
-                # Check each penalty stage threshold
+                # Check each penalty stage threshold - health penalty only
                 if response_sec >= 2.0 and gauge['_penalty_stage'] < 1:
                     gauge['_penalty_stage'] = 1
                     from plugins.healthbar_bus import post_event
                     post_event('SYSMON_DELAY_1', source='sysmon')
-                    play_beep(frequency=600, duration=150)
-                    self._trigger_flash()
                     
                 elif response_sec >= 3.0 and gauge['_penalty_stage'] < 2:
                     gauge['_penalty_stage'] = 2
                     from plugins.healthbar_bus import post_event
                     post_event('SYSMON_DELAY_2', source='sysmon')
-                    play_beep(frequency=500, duration=200)
-                    self._trigger_flash()
                     
                 elif response_sec >= 4.0 and gauge['_penalty_stage'] < 3:
                     gauge['_penalty_stage'] = 3
                     from plugins.healthbar_bus import post_event
                     post_event('SYSMON_DELAY_3', source='sysmon')
-                    play_beep(frequency=400, duration=250)
-                    self._trigger_flash()
+                    
+                elif response_sec >= 5.0 and gauge['_penalty_stage'] < 4:
+                    gauge['_penalty_stage'] = 4
+                    from plugins.healthbar_bus import post_event
+                    post_event('SYSMON_DELAY_4', source='sysmon')
 
             # If the failure timer has ended by itself, stop failure and trigger a negative feedback
             # if possible (scale gauges)
@@ -276,10 +335,17 @@ class Sysmon(AbstractPlugin):
         if super().refresh_widgets() == 0:
             return
         
-        # Handle red flash effect on the entire sysmon area
-        if self._flash_visible and self.get_widget('foreground') is not None:
-            self.get_widget('foreground').set_visibility(True)
-            self.get_widget('foreground').set_border_color(C['RED'])
+        # Handle individual red flash effects for each scale
+        for scale_n, scale in self.parameters['scales'].items():
+            flash_widget = scale.get('_flash_widget')
+            if flash_widget is not None:
+                flash_widget.set_visibility(scale.get('_flash_visible', False))
+        
+        # Handle individual red flash effects for each light (T and Y buttons)
+        for light_n, light in self.parameters['lights'].items():
+            flash_widget = light.get('_flash_widget')
+            if flash_widget is not None:
+                flash_widget.set_visibility(light.get('_flash_visible', False))
         
         for scale_n, scale in self.parameters['scales'].items():
             scale['widget'].set_arrow_position(scale['_pos'])
@@ -316,10 +382,22 @@ class Sysmon(AbstractPlugin):
         color = light['oncolor'] if light['on'] == True else C['BACKGROUND']
         return color
 
-    def _trigger_flash(self, duration_ms=300):
-        """Trigger a red flash effect on the sysmon container."""
-        self._flash_timer = duration_ms
-        self._flash_visible = True
+    def _trigger_flash(self, gauge=None, duration_ms=300):
+        """Trigger a red flash effect on a specific gauge's widget.
+        
+        Args:
+            gauge: The gauge dict to flash. If None, flashes all gauges on failure.
+            duration_ms: Duration of the flash in milliseconds.
+        """
+        if gauge is not None:
+            # Flash specific gauge
+            gauge['_flash_timer'] = duration_ms
+            gauge['_flash_visible'] = True
+        else:
+            # Flash all gauges currently on failure
+            for g in self.get_gauges_on_failure():
+                g['_flash_timer'] = duration_ms
+                g['_flash_visible'] = True
 
 
     def start_failure(self, gauge):
@@ -336,9 +414,6 @@ class Sysmon(AbstractPlugin):
                     gauge['side'] = choice([-1, 1], self.alias, self.scenario_time, int(add))
                 gauge['_zone'] = gauge['side']
             
-            # Play warning beep when failure starts (only if not auto-solving)
-            if not self.parameters['automaticsolver']:
-                play_beep(frequency=800, duration=150)  # Short alert beep
         
         gauge['failure'] = False
 
@@ -372,8 +447,9 @@ class Sysmon(AbstractPlugin):
             sdt_string, rt = 'HIT', gauge['_milliresponsetime']
         else:
             sdt_string, rt = 'MISS', float('nan')
-            # Play error beep when participant failed to respond in time (MISS)
-            play_beep(frequency=400, duration=400)  # Lower, longer tone for MISS
+            # Play error beep and flash when participant failed to respond in time (MISS)
+            play_beep(frequency=180, duration=150, repeat=2, gap=100)  # Lower tone for MISS
+            self._trigger_flash(gauge)
         sdt_string = 'HIT' if ft == 'positive' else 'MISS'
 
 
@@ -454,8 +530,8 @@ class Sysmon(AbstractPlugin):
                 post_event('FA', source='sysmon')
                 
                 # Play error beep and flash for False Alarm
-                play_beep(frequency=300, duration=300)
-                self._trigger_flash()
+                play_beep(frequency=220, duration=100, repeat=2, gap=80)
+                self._trigger_flash(gauge)
 
                 # Set a negative feedback if relevant
                 if self.parameters['feedbacks']['negative']['active']:

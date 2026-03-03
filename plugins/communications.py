@@ -11,12 +11,23 @@ try:
 except ImportError:
     HAS_WINSOUND = False
 
-def play_beep(frequency=1000, duration=200):
-    """Play a beep sound in a separate thread to avoid blocking."""
+def play_beep(frequency=1000, duration=200, repeat=1, gap=50):
+    """Play a beep sound in a separate thread to avoid blocking.
+    
+    Args:
+        frequency: Beep frequency in Hz
+        duration: Duration of each beep in ms
+        repeat: Number of times to repeat the beep
+        gap: Gap between repeated beeps in ms
+    """
     if HAS_WINSOUND:
         def _beep():
             try:
-                winsound.Beep(frequency, duration)
+                import time
+                for i in range(repeat):
+                    winsound.Beep(frequency, duration)
+                    if i < repeat - 1:
+                        time.sleep(gap / 1000.0)
             except:
                 pass
         threading.Thread(target=_beep, daemon=True).start()
@@ -49,7 +60,7 @@ class Communications(AbstractPlugin):
         new_par = dict(owncallsign=str(), othercallsign=list(), othercallsignnumber=5,
                        airbandminMhz=108.0, airbandmaxMhz=137.0, airbandminvariationMhz=5,
                        airbandmaxvariationMhz=6, voicegender='male', voiceidiom='english',
-                       radioprompt=str(), maxresponsedelay=15000,
+                       radioprompt=str(), maxresponsedelay=7000,
                        promptlist=['NAV_1', 'NAV_2', 'COM_1', 'COM_2'], automaticsolver=False,
                        automaticsolverdelay=2000, displayautomationstate=True, automationlabel='', feedbackduration=1500,
                        feedbacks=dict(positive=dict(active=False, color=C['GREEN']),
@@ -66,7 +77,8 @@ class Communications(AbstractPlugin):
             self.parameters['radios'][r] = {'name': this_radio, 'currentfreq': self.get_rand_frequency(r),
                                             'targetfreq': None, 'pos': r, 'response_time': 0,
                                             'is_active': False, 'is_prompting':False,
-                                            '_feedbacktimer': None, '_feedbacktype':None}
+                                            '_feedbacktimer': None, '_feedbacktype':None,
+                                            '_penalty_stage': 0}  # Track delay penalty stages
         self.lastradioselected = None
         self.frequency_modulation = 0.1
         
@@ -114,6 +126,16 @@ class Communications(AbstractPlugin):
             radio['widget'] = self.add_widget(f"radio_{radio['name']}", Radio,
                                              container=radio_container, label=radio['name'],
                                              frequency=radio['currentfreq'], on=radio['is_active'])
+        
+        # Create red flash overlay (thick red border that flashes on warnings)
+        from core.widgets import Frame
+        from core.constants import COLORS as C
+        self._red_flash_widget = self.add_widget('red_flash', Frame,
+                                                 container=self.task_container,
+                                                 border_thickness=0.04,
+                                                 border_color=C['RED'],
+                                                 fill_color=None,
+                                                 draw_order=self.m_draw+20)
 
 
     def get_callsign(self):
@@ -307,6 +329,25 @@ class Communications(AbstractPlugin):
             # Increment response time as soon as auditory prompting has ended
             if radio['is_prompting'] == False:
                 radio['response_time'] += self.parameters['taskupdatetime']
+                
+                # Progressive delay penalties (at 2s, 4s, 6s) - only when automation is OFF
+                if not self.parameters['automaticsolver']:
+                    response_sec = radio['response_time'] / 1000.0
+                    
+                    if response_sec >= 2.0 and radio['_penalty_stage'] < 1:
+                        radio['_penalty_stage'] = 1
+                        from plugins.healthbar_bus import post_event
+                        post_event('COMMS_DELAY_1', source='communications')
+                        
+                    elif response_sec >= 4.0 and radio['_penalty_stage'] < 2:
+                        radio['_penalty_stage'] = 2
+                        from plugins.healthbar_bus import post_event
+                        post_event('COMMS_DELAY_2', source='communications')
+                        
+                    elif response_sec >= 6.0 and radio['_penalty_stage'] < 3:
+                        radio['_penalty_stage'] = 3
+                        from plugins.healthbar_bus import post_event
+                        post_event('COMMS_DELAY_3', source='communications')
 
                 # Record potential target miss
                 if radio['response_time'] >= self.parameters['maxresponsedelay']:
@@ -370,9 +411,12 @@ class Communications(AbstractPlugin):
             return
         
         # Handle red flash effect on the entire communications area
-        if self._flash_visible and self.get_widget('foreground') is not None:
-            self.get_widget('foreground').set_visibility(True)
-            self.get_widget('foreground').set_border_color(C['RED'])
+        red_flash = self.get_widget('red_flash')
+        if red_flash is not None:
+            if self._flash_visible:
+                red_flash.set_visibility(True)
+            else:
+                red_flash.set_visibility(False)
 
         self.widgets['communications_callsign'].set_text(self.parameters['owncallsign'])
 
@@ -397,6 +441,7 @@ class Communications(AbstractPlugin):
     def disable_radio_target(self, radio):
         radio['response_time'] = 0
         radio['targetfreq'] = None
+        radio['_penalty_stage'] = 0  # Reset penalty stage
 
 
     def record_target_missing(self, target_radio):
@@ -417,7 +462,7 @@ class Communications(AbstractPlugin):
         from plugins.healthbar_bus import post_event
         post_event('COMMS_MISS', source='communications')
         # Play error beep and flash for COMMS_MISS (penalty -20)
-        play_beep(frequency=300, duration=400)
+        play_beep(frequency=180, duration=150, repeat=2, gap=100)
         self._trigger_flash()
 
 
@@ -475,12 +520,16 @@ class Communications(AbstractPlugin):
         # inside Communications.confirm_response after computing sdt and logging
         from plugins.healthbar_bus import post_event
         if sdt == 'HIT':
-            post_event('CORRECT', source='communications')  # or 'HIT' if you prefer
+            post_event('CORRECT', source='communications')
+        elif sdt == 'FA':
+            # False alarm: pressed ENTER when no instruction was active
+            post_event('COMMS_FA', source='communications')
+            play_beep(frequency=220, duration=100, repeat=2, gap=80)
+            self._trigger_flash()
         elif sdt in ('BAD_FREQ', 'BAD_RADIO', 'BAD_RADIO_FREQ'):
-            # Post specific event for bad frequency (penalty -15)
+            # Wrong frequency/radio
             post_event(sdt, source='communications')
-            # Play error beep and trigger flash
-            play_beep(frequency=350, duration=300)
+            play_beep(frequency=220, duration=100, repeat=2, gap=80)
             self._trigger_flash()
         elif sdt == 'MISS':
             post_event('MISS', source='communications')

@@ -20,13 +20,14 @@ class Healthbar(AbstractPlugin):
             max_health=100.0,
             start_health=100.0,
             regen_per_sec=0.0,        # passive regen
-            gain_hit=6.0,             # HIT from sysmon, etc.
-            gain_correct=10.0,         # exact correct actions (e.g., comms tuned)
-            penalty_miss=12.0,        # MISS (timeout) - final miss after all delays
-            penalty_fa=10.0,          # false alarm / wrong key
-            penalty_delay=10.0,       # penalty for each delay stage (2s, 3s, 4s)
-            penalty_bad_freq=15.0,    # wrong frequency in communications
-            penalty_comms_miss=20.0,  # communications miss
+            gain_hit=10.0,            # HIT from sysmon
+            gain_correct=15.0,        # CORRECT from communications
+            penalty_miss=5.0,         # MISS (sysmon timeout) - same as delay penalty
+            penalty_fa=10.0,          # false alarm (sysmon wrong key)
+            penalty_delay=5.0,        # sysmon delay penalty (2s, 3s, 4s, 5s)
+            penalty_comms_delay=6.0,  # communications delay penalty
+            penalty_comms_fa=12.0,    # communications false alarm (wrong freq/radio)
+            penalty_comms_miss=6.0,   # communications miss (timeout) - same as delay
             min_health=0.0,
 
             # UI sizing/colors - improved appearance
@@ -154,20 +155,35 @@ class Healthbar(AbstractPlugin):
         # 2) Consume performance events posted by other plugins
         for _, kind, source, value in drain_events():
             k = (kind or '').upper()
-            if k in ('HIT', 'CORRECT'):
-                delta = self.parameters['gain_hit'] if k == 'HIT' else self.parameters['gain_correct']
-                self._health = self._clamp(self._health + delta)
-            elif k in ('MISS', 'FA'):
-                delta = self.parameters['penalty_miss'] if k == 'MISS' else self.parameters['penalty_fa']
-                self._health = self._clamp(self._health - delta)
-            # Progressive delay penalties for sysmon (at 2s, 3s, 4s)
-            elif k in ('SYSMON_DELAY_1', 'SYSMON_DELAY_2', 'SYSMON_DELAY_3'):
+            
+            # === POSITIVE EVENTS ===
+            if k == 'HIT':
+                # Sysmon correct response: +10
+                self._health = self._clamp(self._health + self.parameters['gain_hit'])
+            elif k == 'CORRECT':
+                # Communications correct frequency: +15
+                self._health = self._clamp(self._health + self.parameters['gain_correct'])
+            
+            # === SYSMON PENALTIES ===
+            elif k in ('SYSMON_DELAY_1', 'SYSMON_DELAY_2', 'SYSMON_DELAY_3', 'SYSMON_DELAY_4'):
+                # Sysmon delay penalty: -5 each
                 self._health = self._clamp(self._health - self.parameters['penalty_delay'])
-            # Bad frequency/radio in communications: -15
-            elif k in ('BAD_FREQ', 'BAD_RADIO', 'BAD_RADIO_FREQ'):
-                self._health = self._clamp(self._health - self.parameters['penalty_bad_freq'])
-            # Communications miss: -20
+            elif k == 'MISS':
+                # Sysmon final timeout: -5 (same as delay)
+                self._health = self._clamp(self._health - self.parameters['penalty_miss'])
+            elif k == 'FA':
+                # Sysmon false alarm: -5
+                self._health = self._clamp(self._health - self.parameters['penalty_fa'])
+            
+            # === COMMUNICATIONS PENALTIES ===
+            elif k in ('COMMS_DELAY_1', 'COMMS_DELAY_2', 'COMMS_DELAY_3', 'COMMS_DELAY_4'):
+                # Communications delay penalty: -6 each
+                self._health = self._clamp(self._health - self.parameters['penalty_comms_delay'])
+            elif k in ('BAD_FREQ', 'BAD_RADIO', 'BAD_RADIO_FREQ', 'COMMS_FA'):
+                # Communications false alarm (wrong freq/radio or Enter with no prompt): -12
+                self._health = self._clamp(self._health - self.parameters['penalty_comms_fa'])
             elif k == 'COMMS_MISS':
+                # Communications final timeout: -6 (same as delay)
                 self._health = self._clamp(self._health - self.parameters['penalty_comms_miss'])
 
     def refresh_widgets(self):
