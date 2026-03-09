@@ -80,7 +80,7 @@ class Scenario:
         if contents is None:
             scenario_path = P['SCENARIOS'].joinpath(get_conf_value('Openmatb', 'scenario_path'))
             if scenario_path.exists():
-                contents = open(scenario_path, 'r').readlines()
+                contents = open(scenario_path, 'r', encoding='utf-8').readlines()
                 logger.log_manual_entry(scenario_path, key='scenario_path')
             else:
                 errors.add_error(_('%s was not found') % str(scenario_path), fatal = True)
