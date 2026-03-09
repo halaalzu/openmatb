@@ -1,0 +1,188 @@
+# OpenMATB scenario: Test task - 6 min
+# Definition: AUTO  = sysmon + comms automated, tracking always manual
+#             MANUAL= all 3 tasks manual
+#
+# Structure:
+#   0:00 - 2:00  Section 1 - MANUAL         (all 3 tasks manual)
+#   2:00 - 4:00  Section 2 - AUTO PERFECT   (100% success)
+#   4:00 - 5:00  Section 3 - AUTO LOW RELIABILITY (~33% success)
+#                  First error TIMEOUT fires at exactly t=4:00
+#                  (failure event starts at 3:53 → 7s alerttimeout → miss at 4:00)
+#   5:00 - 6:00  Section 4 - AUTO PERFECT   (100% success)
+#
+# Low-reliability mechanism (Section 3):
+#   Auto-OFF Window 1: 3:52 → 4:05
+#     sysmon  failure at 3:53  → MISS at 4:00  (7s timeout) ← FIRST ERROR AT 4:00
+#     comms   prompt  at 3:50  → audio ends ~3:53 → MISS at 4:03
+#   Auto back ON at 4:05
+#     sysmon  failure at 4:20  → HIT (auto handles)
+#     comms   prompt  at 4:28  → HIT (auto handles)
+#   Auto-OFF Window 2: 4:43 → 4:56
+#     sysmon  failure at 4:44  → MISS at 4:51  (7s timeout)
+#     comms   prompt  at 4:42  → audio ends ~4:45 → MISS at 4:55 (10s timeout)
+#   Section 4 sets auto=True at 5:00
+
+# POST-TASK QUESTIONNAIRE (appears after task ends)
+0:06:00;genericscales;filename;McGrath_Short_TIAS.txt
+0:06:00;genericscales;start
+
+0:00:00;healthbar;start
+0:06:00;healthbar;stop
+
+# ============================================================
+# SECTION 1: MANUAL (0:00 - 2:00)
+# All 3 tasks manual
+# ============================================================
+0:00:00;sysmon;automaticsolver;False
+0:00:00;sysmon;displayautomationstate;True
+0:00:00;sysmon;automationlabel;MANUAL
+0:00:00;sysmon;automaticsolverdelay;2000
+
+0:00:00;track;automaticsolver;False
+0:00:00;track;displayautomationstate;True
+0:00:00;track;taskplacement;topright
+
+0:00:00;communications;automaticsolver;False
+0:00:00;communications;displayautomationstate;True
+0:00:00;communications;automationlabel;MANUAL
+
+0:00:00;communications;callsignregex;[A-Z][A-Z][A-Z]\d\d\d
+0:00:00;communications;othercallsignnumber;5
+0:00:00;communications;voicegender;male
+0:00:00;communications;voiceidiom;english
+
+0:00:00;communications;start
+0:00:00;sysmon;start
+0:00:00;performance;start
+0:00:00;performance;hide
+0:00:00;track;start
+
+# Section 1 sysmon failures - all manual (5 failures ~27s apart)
+0:00:08;sysmon;lights-2-failure;True
+0:00:35;sysmon;lights-1-failure;True
+0:01:02;sysmon;scales-2-side;-1
+0:01:02;sysmon;scales-2-failure;True
+0:01:29;sysmon;scales-1-side;1
+0:01:29;sysmon;scales-1-failure;True
+0:01:56;sysmon;scales-3-side;1
+0:01:56;sysmon;scales-3-failure;True
+
+# Section 1 comms prompts - all manual
+0:00:22;communications;radioprompt;own
+0:01:00;communications;radioprompt;other
+0:01:35;communications;radioprompt;own
+
+# ============================================================
+# SECTION 2: AUTO PERFECT (2:00 - 4:00)
+# Automation handles everything
+# ============================================================
+0:02:00;sysmon;automaticsolver;True
+0:02:00;sysmon;automationlabel;AUTO
+0:02:00;communications;automaticsolver;True
+0:02:00;communications;automationlabel;AUTO
+
+# Section 2 sysmon failures - all handled by auto (4 failures)
+0:02:08;sysmon;lights-2-failure;True
+0:02:35;sysmon;lights-1-failure;True
+0:03:02;sysmon;scales-2-side;-1
+0:03:02;sysmon;scales-2-failure;True
+0:03:29;sysmon;scales-1-side;1
+0:03:29;sysmon;scales-1-failure;True
+
+# Section 2 comms prompts - all handled by auto
+0:02:22;communications;radioprompt;own
+0:03:00;communications;radioprompt;other
+0:03:35;communications;radioprompt;own
+
+# ============================================================
+# SECTION 3: AUTO LOW RELIABILITY (3:52 - 5:00)
+# Label stays "AUTO" - failures are unexpected
+# Reliability: 1 out of 3 sysmon + 1 out of 3 comms handled = ~33%
+# ============================================================
+
+# --- Auto-OFF Window 1: 3:52 to 4:05 ---
+# Sysmon at 3:53: alerttimeout=7s → MISS fires at 4:00 (FIRST ERROR AT 4:00)
+# Comms  at 3:50: audio ends ~3:53 → 10s timeout → MISS fires at 4:03
+0:03:52;sysmon;automaticsolver;False
+0:03:52;communications;automaticsolver;False
+
+# Comms prompt just before window so audio ends inside the window
+0:03:50;communications;radioprompt;own
+
+# First sysmon failure: starts inside window → MISS at t=4:00
+0:03:53;sysmon;scales-4-side;-1
+0:03:53;sysmon;scales-4-failure;True
+
+# Auto back ON at 4:05
+0:04:05;sysmon;automaticsolver;True
+0:04:05;communications;automaticsolver;True
+
+# --- HIT events between windows ---
+# Sysmon at 4:20 → auto handles (HIT)
+0:04:20;sysmon;lights-2-failure;True
+# Comms at 4:28 → auto handles (HIT)
+0:04:28;communications;radioprompt;other
+
+# --- Auto-OFF Window 2: 4:43 to 4:56 ---
+# Sysmon at 4:44: 7s timeout → MISS at 4:51
+# Comms  at 4:42: audio ends ~4:45 → 10s timeout → MISS at 4:55
+0:04:43;sysmon;automaticsolver;False
+0:04:43;communications;automaticsolver;False
+
+# Comms prompt before window so audio ends inside window
+0:04:42;communications;radioprompt;own
+
+# Second sysmon failure: inside window 2 → MISS at 4:51
+0:04:44;sysmon;scales-2-side;1
+0:04:44;sysmon;scales-2-failure;True
+
+# Auto back ON at 4:56 (brief gap before Section 4)
+0:04:56;sysmon;automaticsolver;True
+0:04:56;communications;automaticsolver;True
+
+# ============================================================
+# SECTION 4: AUTO PERFECT (5:00 - 6:00)
+# ============================================================
+0:05:00;sysmon;automaticsolver;True
+0:05:00;sysmon;automationlabel;AUTO
+0:05:00;communications;automaticsolver;True
+0:05:00;communications;automationlabel;AUTO
+
+# Section 4 sysmon failures - all handled by auto
+0:05:08;sysmon;lights-1-failure;True
+0:05:35;sysmon;lights-2-failure;True
+
+# Section 4 comms - all handled by auto
+0:05:15;communications;radioprompt;own
+0:05:45;communications;radioprompt;other
+
+# ============================================================
+# SYSMON REPORTS (every 20s)
+# ============================================================
+0:00:20;sysmon;report
+0:00:40;sysmon;report
+0:01:00;sysmon;report
+0:01:20;sysmon;report
+0:01:40;sysmon;report
+0:02:00;sysmon;report
+0:02:20;sysmon;report
+0:02:40;sysmon;report
+0:03:00;sysmon;report
+0:03:20;sysmon;report
+0:03:40;sysmon;report
+0:04:00;sysmon;report
+0:04:20;sysmon;report
+0:04:40;sysmon;report
+0:05:00;sysmon;report
+0:05:20;sysmon;report
+0:05:40;sysmon;report
+0:06:00;sysmon;report
+
+# ============================================================
+# STOP
+# ============================================================
+0:06:00;sysmon;stop
+0:06:00;track;stop
+0:06:00;communications;stop
+0:06:00;performance;stop
+0:05:59;performance;show_summary
