@@ -5,22 +5,26 @@
 # Structure:
 #   0:00 - 2:00  Section 1 - MANUAL         (all 3 tasks manual)
 #   2:00 - 4:00  Section 2 - AUTO PERFECT   (100% success)
-#   4:00 - 5:00  Section 3 - AUTO LOW RELIABILITY (~33% success)
-#                  First error TIMEOUT fires at exactly t=4:00
-#                  (failure event starts at 3:53 → 7s alerttimeout → miss at 4:00)
+#   3:54 - 5:00  Section 3 - AUTO LOW RELIABILITY
+#                  auto OFF window 1: 3:54 → 4:17
+#                  auto ON  window:   4:17 → 4:37
+#                  auto OFF window 2: 4:37 → 5:00
 #   5:00 - 6:00  Section 4 - AUTO PERFECT   (100% success)
 #
 # Low-reliability mechanism (Section 3):
-#   Auto-OFF Window 1: 3:52 → 4:05
-#     sysmon  failure at 3:53  → MISS at 4:00  (7s timeout) ← FIRST ERROR AT 4:00
-#     comms   prompt  at 3:50  → audio ends ~3:53 → MISS at 4:03
-#   Auto back ON at 4:05
-#     sysmon  failure at 4:20  → HIT (auto handles)
-#     comms   prompt  at 4:28  → HIT (auto handles)
-#   Auto-OFF Window 2: 4:43 → 4:56
-#     sysmon  failure at 4:44  → MISS at 4:51  (7s timeout)
-#     comms   prompt  at 4:42  → audio ends ~4:45 → MISS at 4:55 (10s timeout)
-#   Section 4 sets auto=True at 5:00
+#   Audio prompt duration is ~11s.  Response window = 12s after audio ends.
+#
+#   Auto-OFF Window 1: 3:54 → 4:17
+#     comm   audio  starts 3:55 → ends ~4:06 → MISS at ~4:18  (12s response window)
+#     sysmon failure at    4:00 → alerttimeout=7s  → MISS at  4:07
+#
+#   Auto back ON at 4:17
+#     sysmon failure at    4:18 → automaticsolverdelay=2s → HIT at ~4:20
+#     comm   audio  starts 4:18 → ends ~4:30 → auto handles  → HIT at ~4:32
+#
+#   Auto-OFF Window 2: 4:37 → 5:00
+#     sysmon failure at    4:38 → alerttimeout=7s  → MISS at  4:45
+#     comm   audio  starts 4:40 → ends ~4:51 → MISS at ~5:01  (section 4 auto too late)
 
 # POST-TASK QUESTIONNAIRE (appears after task ends)
 0:06:00;genericscales;filename;McGrath_Short_TIAS.txt
@@ -95,50 +99,42 @@
 0:03:35;communications;radioprompt;own
 
 # ============================================================
-# SECTION 3: AUTO LOW RELIABILITY (3:52 - 5:00)
-# Label stays "AUTO" - failures are unexpected
-# Reliability: 1 out of 3 sysmon + 1 out of 3 comms handled = ~33%
+# SECTION 3: AUTO LOW RELIABILITY (3:54 - 5:00)
+# Label stays "AUTO" — failures are unexpected
 # ============================================================
 
-# --- Auto-OFF Window 1: 3:52 to 4:05 ---
-# Sysmon at 3:53: alerttimeout=7s → MISS fires at 4:00 (FIRST ERROR AT 4:00)
-# Comms  at 3:50: audio ends ~3:53 → 10s timeout → MISS fires at 4:03
-0:03:52;sysmon;automaticsolver;False
-0:03:52;communications;automaticsolver;False
+# --- Auto-OFF Window 1: 3:54 to 4:17 ---
+0:03:54;sysmon;automaticsolver;False
+0:03:54;communications;automaticsolver;False
 
-# Comms prompt just before window so audio ends inside the window
-0:03:50;communications;radioprompt;own
+# Comm: audio starts 3:55, lasts ~11s → ends ~4:06 → MISS at ~4:16
+0:03:55;communications;radioprompt;own
 
-# First sysmon failure: starts inside window → MISS at t=4:00
-0:03:53;sysmon;scales-4-side;-1
-0:03:53;sysmon;scales-4-failure;True
+# Sysmon: failure at 4:00, alerttimeout=7s → MISS at 4:07
+0:04:00;sysmon;scales-4-side;-1
+0:04:00;sysmon;scales-4-failure;True
 
-# Auto back ON at 4:05
-0:04:05;sysmon;automaticsolver;True
-0:04:05;communications;automaticsolver;True
+# Auto back ON at 4:17 (after comm MISS at ~4:16)
+0:04:17;sysmon;automaticsolver;True
+0:04:17;communications;automaticsolver;True
 
-# --- HIT events between windows ---
-# Sysmon at 4:20 → auto handles (HIT)
-0:04:20;sysmon;lights-2-failure;True
-# Comms at 4:28 → auto handles (HIT)
-0:04:28;communications;radioprompt;other
+# --- HIT events (auto ON window 4:17 - 4:37) ---
+# Sysmon 4:18: automaticsolverdelay=2s → HIT at ~4:20
+0:04:18;sysmon;lights-2-failure;True
 
-# --- Auto-OFF Window 2: 4:43 to 4:56 ---
-# Sysmon at 4:44: 7s timeout → MISS at 4:51
-# Comms  at 4:42: audio ends ~4:45 → 10s timeout → MISS at 4:55
-0:04:43;sysmon;automaticsolver;False
-0:04:43;communications;automaticsolver;False
+# Comm 4:18: audio ~12s → ends ~4:30 → auto handles → HIT at ~4:32
+0:04:18;communications;radioprompt;own
 
-# Comms prompt before window so audio ends inside window
-0:04:42;communications;radioprompt;own
+# --- Auto-OFF Window 2: 4:37 to 5:00 ---
+0:04:37;sysmon;automaticsolver;False
+0:04:37;communications;automaticsolver;False
 
-# Second sysmon failure: inside window 2 → MISS at 4:51
-0:04:44;sysmon;scales-2-side;1
-0:04:44;sysmon;scales-2-failure;True
+# Sysmon 4:38: alerttimeout=7s → MISS at 4:45
+0:04:38;sysmon;scales-2-side;1
+0:04:38;sysmon;scales-2-failure;True
 
-# Auto back ON at 4:56 (brief gap before Section 4)
-0:04:56;sysmon;automaticsolver;True
-0:04:56;communications;automaticsolver;True
+# Comm 4:40: audio ~11s → ends ~4:51 → MISS at ~5:03 (section-4 auto too late)
+0:04:40;communications;radioprompt;own
 
 # ============================================================
 # SECTION 4: AUTO PERFECT (5:00 - 6:00)

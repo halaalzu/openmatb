@@ -22,12 +22,14 @@ class Healthbar(AbstractPlugin):
             regen_per_sec=0.0,        # passive regen
             gain_hit=10.0,            # HIT from sysmon
             gain_correct=15.0,        # CORRECT from communications
-            penalty_miss=5.0,         # MISS (sysmon timeout) - same as delay penalty
+            gain_track=1.0,
+            penalty_miss=9.0,         # MISS (sysmon timeout) - same as delay penalty
             penalty_fa=10.0,          # false alarm (sysmon wrong key)
-            penalty_delay=5.0,        # sysmon delay penalty (2s, 3s, 4s, 5s)
-            penalty_comms_delay=6.0,  # communications delay penalty
+            penalty_delay=3.0,        # sysmon delay penalty (2s, 3s, 4s, 5s)
+            penalty_comms_delay=4.0,  # communications delay penalty
             penalty_comms_fa=12.0,    # communications false alarm (wrong freq/radio)
-            penalty_comms_miss=6.0,   # communications miss (timeout) - same as delay
+            penalty_comms_miss=12.0,   # communications miss (timeout) - same as delay
+            penalty_track_offcenter=2.0,  # tracking cursor off-target (every 0.5s)
             min_health=0.0,
 
             # UI sizing/colors - improved appearance
@@ -180,11 +182,19 @@ class Healthbar(AbstractPlugin):
                 # Communications delay penalty: -6 each
                 self._health = self._clamp(self._health - self.parameters['penalty_comms_delay'])
             elif k in ('BAD_FREQ', 'BAD_RADIO', 'BAD_RADIO_FREQ', 'COMMS_FA'):
-                # Communications false alarm (wrong freq/radio or Enter with no prompt): -12
+                # Communications wrong frequency/radio or false alarm: -12
                 self._health = self._clamp(self._health - self.parameters['penalty_comms_fa'])
             elif k == 'COMMS_MISS':
                 # Communications final timeout: -6 (same as delay)
                 self._health = self._clamp(self._health - self.parameters['penalty_comms_miss'])
+
+            # === TRACKING ===
+            elif k == 'TRACK_ONTARGET':
+                # Tracking cursor on-target: +1 every 500ms
+                self._health = self._clamp(self._health + self.parameters['gain_track'])
+            elif k == 'TRACK_OFFCENTER':
+                # Tracking cursor off-target: -3 every 500ms
+                self._health = self._clamp(self._health - self.parameters['penalty_track_offcenter'])
 
     def refresh_widgets(self):
         # Update healthbar widget first, before parent's visibility check

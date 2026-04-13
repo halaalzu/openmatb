@@ -3,54 +3,67 @@
 # License : CeCILL, version 2.1 (see the LICENSE file)
 
 import threading
+import struct
+import math
+import io
+import wave
 
-# Import winsound for Windows, or provide fallback for other platforms
 try:
     import winsound
     HAS_WINSOUND = True
 except ImportError:
     HAS_WINSOUND = False
 
-_audio_initialized = False
+def _make_wav_bytes(frequency, duration_ms, volume=0.7, sample_rate=44100):
+    """Generate a sine wave tone as WAV bytes in memory."""
+    n_samples = int(sample_rate * duration_ms / 1000)
+    fade = int(0.005 * sample_rate)  # 5ms fade in/out to avoid clicks
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        for i in range(n_samples):
+            t = i / sample_rate
+            f = 1.0
+            if i < fade:
+                f = i / fade
+            elif i > n_samples - fade:
+                f = (n_samples - i) / fade
+            v = int(32767 * volume * f * math.sin(2 * math.pi * frequency * t))
+            w.writeframes(struct.pack('<h', v))
+    return buf.getvalue()
 
-def init_audio():
-    """Initialize audio system with a silent beep to wake it up."""
-    global _audio_initialized
-    if HAS_WINSOUND and not _audio_initialized:
-        def _init():
-            try:
-                # Play a very short, low-frequency beep to initialize audio
-                winsound.Beep(37, 10)  # 37Hz for 10ms - barely audible
-            except:
-                pass
-        threading.Thread(target=_init, daemon=True).start()
-        _audio_initialized = True
-
-def play_beep(frequency=1000, duration=200, repeat=1, gap=50):
-    """Play a beep sound in a separate thread to avoid blocking.
+def play_beep(frequency=300, duration=100, repeat=1, gap=60):
+    """Play a beep tone through the sound card using winsound.PlaySound.
     
     Args:
-        frequency: Beep frequency in Hz
+        frequency: Tone frequency in Hz
         duration: Duration of each beep in ms
-        repeat: Number of times to repeat the beep
-        gap: Gap between repeated beeps in ms
+        repeat: Number of times to repeat
+        gap: Gap between repeats in ms
     """
     if HAS_WINSOUND:
         def _beep():
             try:
                 import time
+                wav_bytes = _make_wav_bytes(frequency, duration)
                 for i in range(repeat):
-                    winsound.Beep(frequency, duration)
+                    winsound.PlaySound(wav_bytes, winsound.SND_MEMORY)
                     if i < repeat - 1:
                         time.sleep(gap / 1000.0)
-            except:
+            except Exception:
                 pass
         threading.Thread(target=_beep, daemon=True).start()
+
+def init_audio():
+    """No-op — PlaySound doesn't need pre-initialization."""
+    pass
 
 from core.pseudorandom import choice, sample
 from core.container import Container
 from core.constants import COLORS as C, FONT_SIZES as F, Group as G
-from core.widgets import Scale, Light, Simpletext
+from core.widgets import Scale, Light, Simpletext, TimeoutBar, AutomodeIndicator
 from core.widgets.abstractwidget import AbstractWidget
 from plugins.abstract import AbstractPlugin
 from pyglet.text import Label
@@ -113,6 +126,7 @@ class Sysmon(AbstractPlugin):
 
         new_par = dict(alerttimeout=7000, automaticsolver=False, automaticsolverdelay=2000,
                        displayautomationstate=True, automationlabel='', allowanykey=False, feedbackduration=1500,
+                       showtimeoutbar=False,
 
                        feedbacks=dict(positive=dict(active=True, color=C['GREEN']),
                                       negative=dict(active=True, color=C['RED'])),
@@ -236,7 +250,40 @@ class Sysmon(AbstractPlugin):
                        text_color=self.parameters['report']['text_color'],
                        background_color=self.parameters['report']['background_color'],
                        border_color=self.parameters['report']['border_color'])
-        
+
+        # Timeout bar (toggle with showtimeoutbar parameter in scenario/config).
+        if self.parameters['showtimeoutbar']:
+            bar_h = max(8, int(self.task_container.h * 0.025))
+            bar_container = Container('sysmon_timeout_bar',
+                                      self.task_container.l,
+                                      self.task_container.b,
+                                      self.task_container.w,
+                                      bar_h)
+            self.add_widget('timeout_bar', TimeoutBar, container=bar_container, draw_order=25)
+
+        # Automation indicator: small square + label, anchored right of screen centre.
+        # Shifted right of centre so it clears any bottom-left widgets.
+        sq = 18
+        label_w = 130
+        offset_right = 80   # px right of screen centre
+        group_l = self.win.width // 2 + offset_right
+        ind_container = Container('sysmon_automode_ind',
+                                  group_l,
+                                  5,
+                                  sq, sq)
+        self.add_widget('automode_indicator', AutomodeIndicator,
+                        container=ind_container, draw_order=60)
+        label_container = Container('sysmon_automode_lbl',
+                                    group_l + sq + 6,
+                                    5,
+                                    label_w, sq)
+        self.add_widget('automode_label', Simpletext,
+                        container=label_container,
+                        text='Automation Status',
+                        x=0.0, y=0.5,
+                        font_size=F['SMALL'],
+                        draw_order=60)
+
 
 
     def compute_next_plugin_state(self):
@@ -376,6 +423,29 @@ class Sysmon(AbstractPlugin):
             self.get_widget('report').show()
         else:
             self.get_widget('report').hide()
+
+        # Timeout bar: show while any gauge is in failure, depleting over alerttimeout.
+        timeout_bar = self.get_widget('timeout_bar')
+        if timeout_bar is not None:
+            gauges_on_failure = self.get_gauges_on_failure()
+            if len(gauges_on_failure) > 0:
+                alert_ms = float(self.parameters['alerttimeout'])
+                # Show the most-urgent gauge (smallest fraction remaining)
+                fracs = [max(0.0, 1.0 - g['_milliresponsetime'] / alert_ms)
+                         for g in gauges_on_failure]
+                timeout_bar.set_fraction(min(fracs))
+                if not timeout_bar.is_visible():
+                    timeout_bar.show()
+            else:
+                if timeout_bar.is_visible():
+                    timeout_bar.hide()
+
+        # Automation indicator: green when the session label is 'AUTO' (stays green even
+        # during the low-reliability window where automaticsolver may be False).
+        automode_ind = self.get_widget('automode_indicator')
+        if automode_ind is not None:
+            automode_ind.set_active(self.parameters.get('automationlabel', '') == 'AUTO')
+
 
 
     def determine_light_color(self, light):

@@ -19,3 +19,4 @@ from .slider import Slider
 from .frame import Frame
 from .performancescale import Performancescale
 from .healthbar import HealthBar
+from .timeout_bar import TimeoutBar, AutomodeIndicator

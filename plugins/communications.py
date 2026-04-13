@@ -3,32 +3,49 @@
 # License : CeCILL, version 2.1 (see the LICENSE file)
 
 import threading
+import struct
+import math
+import io
+import wave
 
-# Import winsound for Windows, or provide fallback for other platforms
 try:
     import winsound
     HAS_WINSOUND = True
 except ImportError:
     HAS_WINSOUND = False
 
-def play_beep(frequency=1000, duration=200, repeat=1, gap=50):
-    """Play a beep sound in a separate thread to avoid blocking.
-    
-    Args:
-        frequency: Beep frequency in Hz
-        duration: Duration of each beep in ms
-        repeat: Number of times to repeat the beep
-        gap: Gap between repeated beeps in ms
-    """
+def _make_wav_bytes(frequency, duration_ms, volume=0.7, sample_rate=44100):
+    """Generate a sine wave tone as WAV bytes in memory."""
+    n_samples = int(sample_rate * duration_ms / 1000)
+    fade = int(0.001 * sample_rate)  # 10ms fade in/out to avoid clicks
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        for i in range(n_samples):
+            t = i / sample_rate
+            f = 1.0
+            if i < fade:
+                f = i / fade
+            elif i > n_samples - fade:
+                f = (n_samples - i) / fade
+            v = int(32767 * volume * f * math.sin(2 * math.pi * frequency * t))
+            w.writeframes(struct.pack('<h', v))
+    return buf.getvalue()
+
+def play_beep(frequency=300, duration=100, repeat=1, gap=60):
+    """Play a beep tone through the sound card using winsound.PlaySound."""
     if HAS_WINSOUND:
         def _beep():
             try:
                 import time
+                wav_bytes = _make_wav_bytes(frequency, duration)
                 for i in range(repeat):
-                    winsound.Beep(frequency, duration)
+                    winsound.PlaySound(wav_bytes, winsound.SND_MEMORY)
                     if i < repeat - 1:
                         time.sleep(gap / 1000.0)
-            except:
+            except Exception:
                 pass
         threading.Thread(target=_beep, daemon=True).start()
 
@@ -37,7 +54,7 @@ from math import copysign
 from pathlib import Path
 from pyglet.media import Player, load
 from plugins.abstract import AbstractPlugin
-from core.widgets import Radio, Simpletext
+from core.widgets import Radio, Simpletext, TimeoutBar
 from core.container import Container
 from core.constants import PATHS as P, COLORS as C, REPLAY_MODE
 from core.pseudorandom import randint, uniform, choice, xeger
@@ -60,9 +77,10 @@ class Communications(AbstractPlugin):
         new_par = dict(owncallsign=str(), othercallsign=list(), othercallsignnumber=5,
                        airbandminMhz=108.0, airbandmaxMhz=137.0, airbandminvariationMhz=5,
                        airbandmaxvariationMhz=6, voicegender='male', voiceidiom='english',
-                       radioprompt=str(), maxresponsedelay=7000,
+                       radioprompt=str(), maxresponsedelay=12000,
                        promptlist=['NAV_1', 'NAV_2', 'COM_1', 'COM_2'], automaticsolver=False,
                        automaticsolverdelay=2000, displayautomationstate=True, automationlabel='', feedbackduration=1500,
+                       showtimeoutbar=True,
                        feedbacks=dict(positive=dict(active=False, color=C['GREEN']),
                                       negative=dict(active=False, color=C['RED'])))
 
@@ -78,7 +96,8 @@ class Communications(AbstractPlugin):
                                             'targetfreq': None, 'pos': r, 'response_time': 0,
                                             'is_active': False, 'is_prompting':False,
                                             '_feedbacktimer': None, '_feedbacktype':None,
-                                            '_penalty_stage': 0}  # Track delay penalty stages
+                                            '_penalty_stage': 0,           # Track delay penalty stages
+                                            '_interacted_cancel_delays': False}  # Any key press cancels delay penalties
         self.lastradioselected = None
         self.frequency_modulation = 0.1
         
@@ -112,6 +131,17 @@ class Communications(AbstractPlugin):
 
     def create_widgets(self):
         super().create_widgets()
+        
+        # Force pyglet to open the audio device immediately at full quality,
+        # so winsound.PlaySound beeps don't sound degraded before first instruction.
+        try:
+            source = load(str(self.sound_path / 'empty.wav'), streaming=False)
+            p = Player()
+            p.queue(source)
+            p.play()
+        except Exception:
+            pass
+        
         self.add_widget('callsign', Simpletext, container=self.task_container,
                        text=('Callsign \t\t %s') % self.parameters['owncallsign'], y=0.9)
 
@@ -130,12 +160,24 @@ class Communications(AbstractPlugin):
         # Create red flash overlay (thick red border that flashes on warnings)
         from core.widgets import Frame
         from core.constants import COLORS as C
+        from core.container import Container as _Container
         self._red_flash_widget = self.add_widget('red_flash', Frame,
                                                  container=self.task_container,
                                                  border_thickness=0.04,
                                                  border_color=C['RED'],
                                                  fill_color=None,
                                                  draw_order=self.m_draw+20)
+
+        # Timeout bar (toggle with showtimeoutbar parameter in scenario/config).
+        if self.parameters['showtimeoutbar']:
+            bar_h = max(8, int(self.task_container.h * 0.025))
+            bar_container = _Container('comm_timeout_bar',
+                                       self.task_container.l,
+                                       self.task_container.b,
+                                       self.task_container.w,
+                                       bar_h)
+            self.add_widget('timeout_bar', TimeoutBar, container=bar_container, draw_order=25)
+
 
 
     def get_callsign(self):
@@ -330,8 +372,10 @@ class Communications(AbstractPlugin):
             if radio['is_prompting'] == False:
                 radio['response_time'] += self.parameters['taskupdatetime']
                 
-                # Progressive delay penalties (at 2s, 4s, 6s) - only when automation is OFF
-                if not self.parameters['automaticsolver']:
+                # Progressive delay penalties - only when automation is OFF and user hasn't interacted yet.
+                # Penalties start 2s after audio ends; spaced at 2s, 5s, 8s.
+                # Cancelled immediately if the participant presses any key in this module.
+                if not self.parameters['automaticsolver'] and not radio['_interacted_cancel_delays']:
                     response_sec = radio['response_time'] / 1000.0
                     
                     if response_sec >= 2.0 and radio['_penalty_stage'] < 1:
@@ -339,12 +383,12 @@ class Communications(AbstractPlugin):
                         from plugins.healthbar_bus import post_event
                         post_event('COMMS_DELAY_1', source='communications')
                         
-                    elif response_sec >= 4.0 and radio['_penalty_stage'] < 2:
+                    elif response_sec >= 5.0 and radio['_penalty_stage'] < 2:
                         radio['_penalty_stage'] = 2
                         from plugins.healthbar_bus import post_event
                         post_event('COMMS_DELAY_2', source='communications')
                         
-                    elif response_sec >= 6.0 and radio['_penalty_stage'] < 3:
+                    elif response_sec >= 8.0 and radio['_penalty_stage'] < 3:
                         radio['_penalty_stage'] = 3
                         from plugins.healthbar_bus import post_event
                         post_event('COMMS_DELAY_3', source='communications')
@@ -437,11 +481,37 @@ class Communications(AbstractPlugin):
                 color = C['BACKGROUND']
             radio['widget'].set_feedback_color(color)
 
+        # Timeout bar logic:
+        #   - Any radio waiting for a response (own prompt, audio done): depleting countdown.
+        #   - Any radio still prompting (own audio playing): full bar.
+        #   - Audio playing for a wrong-callsign (other) prompt: full bar.
+        #   - Otherwise: hidden.
+        timeout_bar = self.get_widget('timeout_bar')
+        if timeout_bar is not None:
+            waiting   = self.get_waiting_response_radios()
+            prompting = self.get_radios_by_key_value('is_prompting', True) or []
+            audio_active = hasattr(self, 'player') and self.player.source is not None
+
+            if len(waiting) > 0:
+                max_delay = float(self.parameters['maxresponsedelay'])
+                fracs = [max(0.0, 1.0 - r['response_time'] / max_delay) for r in waiting]
+                timeout_bar.set_fraction(min(fracs))
+                if not timeout_bar.is_visible():
+                    timeout_bar.show()
+            elif len(prompting) > 0 or audio_active:
+                timeout_bar.set_fraction(1.0)
+                if not timeout_bar.is_visible():
+                    timeout_bar.show()
+            else:
+                if timeout_bar.is_visible():
+                    timeout_bar.hide()
+
 
     def disable_radio_target(self, radio):
         radio['response_time'] = 0
         radio['targetfreq'] = None
-        radio['_penalty_stage'] = 0  # Reset penalty stage
+        radio['_penalty_stage'] = 0
+        radio['_interacted_cancel_delays'] = False  # Reset for next prompt
 
 
     def record_target_missing(self, target_radio):
@@ -517,7 +587,6 @@ class Communications(AbstractPlugin):
 
         sdt = self.get_sdt_value(response_needed, True, good_radio, deviation)
 
-        # inside Communications.confirm_response after computing sdt and logging
         from plugins.healthbar_bus import post_event
         if sdt == 'HIT':
             post_event('CORRECT', source='communications')
@@ -527,7 +596,7 @@ class Communications(AbstractPlugin):
             play_beep(frequency=220, duration=100, repeat=2, gap=80)
             self._trigger_flash()
         elif sdt in ('BAD_FREQ', 'BAD_RADIO', 'BAD_RADIO_FREQ'):
-            # Wrong frequency/radio
+            # Wrong frequency or wrong radio
             post_event(sdt, source='communications')
             play_beep(frequency=220, duration=100, repeat=2, gap=80)
             self._trigger_flash()
@@ -576,6 +645,12 @@ class Communications(AbstractPlugin):
             return
 
         if state == 'press':
+            waiting_radios = self.get_waiting_response_radios()
+
+            # Any key press cancels delay penalties for active prompts
+            for radio in waiting_radios:
+                radio['_interacted_cancel_delays'] = True
+
             if key in self.change_radio.keys():  # Change radio
                 next_active_n = self.keep_value_between(self.get_active_radio_dict()['pos']
                                                         + self.change_radio[key],

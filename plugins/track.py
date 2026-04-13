@@ -34,6 +34,14 @@ class Track(AbstractPlugin):
         self.joystick = None
         self.silent = silent
 
+        # Tracking off-target penalty state
+        self._offcenter_interval_timer = 0  # ms accumulated since last -3 penalty
+        # Tracking on-target gain state
+        self._ontarget_interval_timer = 0   # ms accumulated since last +1 gain
+        self._flash_timer = 0
+        self._flash_visible = False
+        self._flash_widget = None
+
         if not REPLAY_MODE:
             joysticks = get_joysticks()
             if len(joysticks) > 0:
@@ -92,6 +100,19 @@ class Track(AbstractPlugin):
         self.ygain = (self.reticle_container.h * self.gain_ratio)/2
         self.cursor_position = next(self.cursor_path_gen)
 
+        # Red flash overlay covering the entire tracking area (off-target penalty feedback)
+        from core.widgets import Frame
+        self._flash_widget = self.add_widget('track_flash', Frame,
+                                             container=Container('track_flash',
+                                                                  self.task_container.l,
+                                                                  self.task_container.b,
+                                                                  self.task_container.w,
+                                                                  self.task_container.h),
+                                             border_thickness=0.06,
+                                             border_color=C['RED'],
+                                             fill_color=None,
+                                             draw_order=self.m_draw + 20)
+
 
     def compute_next_plugin_state(self):
         if super().compute_next_plugin_state() == 0:
@@ -109,11 +130,40 @@ class Track(AbstractPlugin):
 
         if not self.reticle.is_cursor_in_target():  # A response is needed
             self.response_time += self.parameters['taskupdatetime']
+
+            self._ontarget_interval_timer = 0  # Reset gain timer when off target
+
+            # Off-target penalty: -3 health every 500ms, with red flash (no sound)
+            self._offcenter_interval_timer += self.parameters['taskupdatetime']
+            if self._offcenter_interval_timer >= 500:
+                self._offcenter_interval_timer = 0
+                from plugins.healthbar_bus import post_event
+                post_event('TRACK_OFFCENTER', source='track')
+                self._trigger_flash()
         else:
             if self.response_time > 0:  # The cursor drift has been recovered
                 self.log_performance('response_time', self.response_time)
                 self.response_time = 0
+            self._offcenter_interval_timer = 0  # Reset interval when back on target
 
+            # On-target gain: +1 health every 500ms
+            self._ontarget_interval_timer += self.parameters['taskupdatetime']
+            if self._ontarget_interval_timer >= 750:
+                self._ontarget_interval_timer = 0
+                from plugins.healthbar_bus import post_event
+                post_event('TRACK_ONTARGET', source='track')
+
+        # Decrement flash timer
+        if self._flash_timer > 0:
+            self._flash_timer -= self.parameters['taskupdatetime']
+            if self._flash_timer <= 0:
+                self._flash_visible = False
+
+
+    def _trigger_flash(self, duration_ms=250):
+        """Trigger a brief red border flash on the tracking area."""
+        self._flash_timer = duration_ms
+        self._flash_visible = True
 
     def refresh_widgets(self):
         if super().refresh_widgets() == 0:
@@ -121,6 +171,10 @@ class Track(AbstractPlugin):
         self.reticle.set_cursor_position(*self.cursor_position)
         self.reticle.set_cursor_color(self.parameters[self.cursor_color_key])
         self.reticle.set_target_proportion(self.parameters['targetproportion'])
+
+        # Show/hide the red flash overlay
+        if self._flash_widget is not None:
+            self._flash_widget.set_visibility(self._flash_visible)
 
 
     def compute_next_cursor_position(self):
