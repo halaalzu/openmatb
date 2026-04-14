@@ -28,8 +28,10 @@ from core.utils import get_conf_value, find_the_first_available_session_number, 
 
 class OpenMATB:
     def __init__(self):
-        # The MATB window must be bordeless (for non-fullscreen mode)
-        window = Window(style=Window.WINDOW_STYLE_BORDERLESS)
+        fullscreen = get_conf_value('Openmatb', 'fullscreen')
+        style = (Window.WINDOW_STYLE_BORDERLESS if fullscreen
+                 else Window.WINDOW_STYLE_DEFAULT)
+        window = Window(style=style)
 
         if not REPLAY_MODE:
             content = Scenario()    

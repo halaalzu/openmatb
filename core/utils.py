@@ -39,10 +39,26 @@ def find_the_last_session_number():
     return max(session_numbers)
 
 
+def get_conf_ini_path():
+    return P['PLUGINS'].parent.joinpath('config.ini')
+
+
+def get_optional_conf_int(section, key, default):
+    """Return an int from config.ini when present and valid; otherwise default."""
+    config = configparser.ConfigParser()
+    config.read(get_conf_ini_path())
+    if not config.has_section(section) or not config.has_option(section, key):
+        return default
+    try:
+        return int(config[section][key].strip())
+    except ValueError:
+        return default
+
+
 def get_conf_value(section, key, val_type=None):
 
     # Read the configuration file
-    config_path = P['PLUGINS'].parent.joinpath('config.ini')
+    config_path = get_conf_ini_path()
     config = configparser.ConfigParser()
     config.read(config_path)
 

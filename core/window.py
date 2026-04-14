@@ -17,7 +17,7 @@ from core.constants import REPLAY_MODE, REPLAY_STRIP_PROPORTION
 from core.modaldialog import ModalDialog
 from core.logger import logger
 from core.error import errors
-from core.utils import get_conf_value, find_the_last_session_number
+from core.utils import get_conf_value, get_optional_conf_int, find_the_last_session_number
 
 
 class Window(Window):
@@ -38,12 +38,23 @@ class Window(Window):
         else:
             screen = screens[screen_index]
 
-        self._width=screen.width
-        self._height=screen.height
-        self._fullscreen=get_conf_value('Openmatb', 'fullscreen')
+        self._fullscreen = get_conf_value('Openmatb', 'fullscreen')
+        if self._fullscreen:
+            self._width = screen.width
+            self._height = screen.height
+        else:
+            # Compact windowed mode (title bar + default style from main); overridable in config.ini
+            ww = get_optional_conf_int('Openmatb', 'window_width', 1024)
+            wh = get_optional_conf_int('Openmatb', 'window_height', 576)
+            margin_w, margin_h = 40, 80
+            max_w = max(320, screen.width - margin_w)
+            max_h = max(240, screen.height - margin_h)
+            self._width = max(640, min(ww, max_w))
+            self._height = max(360, min(wh, max_h))
 
-        super().__init__(fullscreen=self._fullscreen, width=self._width, height=self._height, 
-                            vsync=True, *args, **kwargs)
+        super().__init__(fullscreen=self._fullscreen, width=self._width, height=self._height,
+                         vsync=True, resizable=False, caption='OpenMATB',
+                         *args, **kwargs)
 
         img_path = P['IMG']
         logo16 = image.load(img_path.joinpath('logo16.png'))
@@ -79,9 +90,9 @@ class Window(Window):
 
     def set_size_and_location(self):
         self.switch_to()        # The Window must be active before setting the location
-        target_x = (self.screen.x + self.screen.width / 2) - self.screen.width / 2
-        target_y = (self.screen.y + self.screen.height / 2) - self.screen.height / 2
-        self.set_location(int(target_x), int(target_y))
+        target_x = int(self.screen.x + (self.screen.width - self.width) / 2)
+        target_y = int(self.screen.y + (self.screen.height - self.height) / 2)
+        self.set_location(target_x, target_y)
 
 
     def create_MATB_background(self):
@@ -182,8 +193,8 @@ class Window(Window):
                 Container('bottomleft', 0, b, x3, h/2),
                 Container('bottommid', x3, b, x4 - x3, h/2),
                 Container('bottomright', x4, b, w - x4, h/2),
-                Container('mediastrip', 0, 0, self._width*(1+mar), b),
-                Container('inputstrip', w, b, self._width*mar, h)]
+                Container('mediastrip', 0, 0, self.width * (1 + mar), b),
+                Container('inputstrip', w, b, self.width * mar, h)]
 
 
     def get_container(self, placement_name):
