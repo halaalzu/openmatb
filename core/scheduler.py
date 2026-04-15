@@ -51,6 +51,10 @@ class Scheduler:
 
         # Store the plugins that could be paused by a *blocking* event
         self.paused_plugins = list()
+        self.core_task_plugins = {'sysmon', 'track', 'communications', 'resman'}
+        self.start_signal_sent = False
+        self.end_signal_sent = False
+        self.user_aborted = False
 
         # Create the event loop
         self.clock.schedule(self.update)
@@ -94,6 +98,7 @@ class Scheduler:
 
         # If the windows has been killed, exit the program
         if self.win.alive == False:
+            self.user_aborted = True
             # Be careful to stop all the plugins in case they’re not
             # (so we have a stop time for each plugin, in case we must compute this somewhere)
             for p_name, plugin in self.plugins.items():
@@ -170,6 +175,17 @@ class Scheduler:
         # If one argument, assume it is a plugin method to execute
         if len(event.command) == 1:
             getattr(plugin, event.command[0])()
+            if (event.command[0] == 'start'
+                    and event.plugin in self.core_task_plugins
+                    and not self.start_signal_sent):
+                self.win.imotions_bridge.on_task_start()
+                self.start_signal_sent = True
+            if (event.command[0] == 'show_summary'
+                    and event.plugin == 'performance'
+                    and not self.end_signal_sent):
+                # Fire end signal exactly when performance summary appears.
+                self.win.imotions_bridge.on_task_end()
+                self.end_signal_sent = True
 
         # If two arguments in the 'command' field, suppose a (parameter, value) to update
         elif len(event.command) == 2:

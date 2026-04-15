@@ -1,5 +1,4 @@
 import io
-import msvcrt
 import os
 import socket
 import time
@@ -109,18 +108,8 @@ class ControlImotions:
         return self._send(["R", "1", "", "LOAD", path, name, mode])
 
 
-with ControlImotions() as imotions:
-    print("Connected. Press SPACE to MIN then MAX iMotions. Press Q to quit.")
-    while True:
-        if not msvcrt.kbhit():
-            time.sleep(0.02)
-            continue
-        ch = msvcrt.getwch()
-        if ch in ("q", "Q"):
-            print("Exiting remote control loop.")
-            break
-        if ch == " ":
-            imotions.minimize()
-            time.sleep(0.15)
-            imotions.maximize()
-            print("Sent: MIN -> MAX")
+if __name__ == "__main__":
+    # Keep this script as a simple connectivity smoke test only.
+    with ControlImotions() as imotions:
+        busy, status_text = imotions.status()
+        print(f"Connected. Busy={busy}. Status={status_text}")

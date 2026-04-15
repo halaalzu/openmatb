@@ -18,6 +18,7 @@ from core.modaldialog import ModalDialog
 from core.logger import logger
 from core.error import errors
 from core.utils import get_conf_value, get_optional_conf_int, find_the_last_session_number
+from imotions.remote_bridge import ImotionsBridge
 
 
 class Window(Window):
@@ -73,6 +74,7 @@ class Window(Window):
         self.slider_visible = False
 
         self.on_key_press_replay = None # used by the replay
+        self.imotions_bridge = ImotionsBridge()
 
         # Display the session ID if need be, at window instanciation
         if REPLAY_MODE == True:
@@ -138,7 +140,6 @@ class Window(Window):
                 self.exit_prompt()
             elif keystr == 'P':
                 self.pause_prompt()
-
             if REPLAY_MODE:
                 if self.on_key_press_replay != None:
                     self.on_key_press_replay(symbol, modifiers)
@@ -149,7 +150,12 @@ class Window(Window):
 
     def on_key_release(self, symbol, modifiers):
         if self.modal_dialog is not None:
+            keystr = winkey.symbol_string(symbol)
             self.modal_dialog.on_key_release(symbol, modifiers)
+            # In quit dialogs, keep parity with prior terminal "Q to quit" behavior:
+            # close the bridge client connection when user confirms quit.
+            if keystr == 'Q':
+                self.imotions_bridge.on_quit()
             return
 
         keystr = winkey.symbol_string(symbol)
@@ -166,6 +172,7 @@ class Window(Window):
 
 
     def exit(self):
+        self.imotions_bridge.close()
         self.alive = False
 
 
