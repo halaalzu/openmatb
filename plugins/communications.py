@@ -77,7 +77,7 @@ class Communications(AbstractPlugin):
         new_par = dict(owncallsign=str(), othercallsign=list(), othercallsignnumber=5,
                        airbandminMhz=108.0, airbandmaxMhz=137.0, airbandminvariationMhz=5,
                        airbandmaxvariationMhz=6, voicegender='male', voiceidiom='english',
-                       radioprompt=str(), maxresponsedelay=12000,
+                       radioprompt=str(), maxresponsedelay=14000,
                        promptlist=['NAV_1', 'NAV_2', 'COM_1', 'COM_2'], automaticsolver=False,
                        automaticsolverdelay=2000, displayautomationstate=True, automationlabel='', feedbackduration=1500,
                        showtimeoutbar=True,
@@ -177,8 +177,6 @@ class Communications(AbstractPlugin):
                                        self.task_container.w,
                                        bar_h)
             self.add_widget('timeout_bar', TimeoutBar, container=bar_container, draw_order=25)
-
-
 
     def get_callsign(self):
         self.callsign_seed += 1

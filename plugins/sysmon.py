@@ -263,24 +263,26 @@ class Sysmon(AbstractPlugin):
 
         # Automation indicator: small square + label, anchored right of screen centre.
         # Shifted right of centre so it clears any bottom-left widgets.
-        sq = 18
-        label_w = 130
+        sq = 36
+        label_w = 160
+        label_h = 22
         offset_right = 80   # px right of screen centre
         group_l = self.win.width // 2 + offset_right
+        group_b = self.win.height // 2 + 80
         ind_container = Container('sysmon_automode_ind',
                                   group_l,
-                                  5,
+                                  group_b,
                                   sq, sq)
         self.add_widget('automode_indicator', AutomodeIndicator,
                         container=ind_container, draw_order=60)
         label_container = Container('sysmon_automode_lbl',
-                                    group_l + sq + 6,
-                                    5,
-                                    label_w, sq)
+                                    group_l - (label_w - sq) // 2,
+                                    group_b - label_h - 8,
+                                    label_w, label_h)
         self.add_widget('automode_label', Simpletext,
                         container=label_container,
                         text='Automation Status',
-                        x=0.0, y=0.5,
+                        x=0.5, y=0.5,
                         font_size=F['SMALL'],
                         draw_order=60)
 

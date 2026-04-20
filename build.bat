@@ -30,6 +30,12 @@ if %errorlevel% neq 0 (
     echo  ERROR: pip install failed. Check that Python is available.
     pause & exit /b 1
 )
+echo        Installing scenario editor dependencies...
+"%PYTHON%" -m pip install -r scenario_editor\requirements.txt >nul 2>&1
+if %errorlevel% neq 0 (
+    echo  ERROR: failed to install scenario editor dependencies.
+    pause & exit /b 1
+)
 echo        Done.
 echo.
 
@@ -57,7 +63,7 @@ echo.
 :: ---------------------------------------------------------------
 :: 5. Run PyInstaller
 :: ---------------------------------------------------------------
-echo [4/4] Building -- this takes 1-3 minutes...
+echo [4/4] Building OpenMATB -- this takes 1-3 minutes...
 echo.
 "%PYTHON%" -m PyInstaller openmatb.spec --clean --noconfirm --distpath release
 
@@ -69,12 +75,26 @@ if %errorlevel% neq 0 (
     pause & exit /b 1
 )
 
+echo.
+echo [5/5] Building Scenario Editor bundle...
+"%PYTHON%" -m PyInstaller scenario_editor.spec --clean --noconfirm --distpath release\openmatb
+if %errorlevel% neq 0 (
+    echo.
+    echo ============================================================
+    echo  SCENARIO EDITOR BUILD FAILED  -- scroll up to read the error.
+    echo ============================================================
+    pause & exit /b 1
+)
+
 :: ---------------------------------------------------------------
 :: 6. Write a quick launch helper next to the exe
 :: ---------------------------------------------------------------
 echo @echo off> release\openmatb\run.bat
 echo cd /d "%%~dp0">> release\openmatb\run.bat
 echo openmatb.exe>> release\openmatb\run.bat
+echo @echo off> release\openmatb\run_editor.bat
+echo cd /d "%%~dp0\scenario_editor">> release\openmatb\run_editor.bat
+echo scenario_editor.exe>> release\openmatb\run_editor.bat
 
 echo.
 echo ============================================================
@@ -83,6 +103,8 @@ echo.
 echo  Output folder : release\openmatb\
 echo  Launch exe    : release\openmatb\openmatb.exe
 echo                  (or double-click release\openmatb\run.bat)
+echo  Editor exe    : release\openmatb\scenario_editor\scenario_editor.exe
+echo                  (or double-click release\openmatb\run_editor.bat)
 echo.
 echo  To share with another computer:
 echo    zip the entire release\openmatb\ folder and copy it over.

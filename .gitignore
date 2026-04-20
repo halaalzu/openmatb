@@ -8,3 +8,5 @@ audio_matb
 *.odt
 build/
 release/
+.cursor/
+imotions/manual.txt
