@@ -1,3 +1,7 @@
+See [SETUP.md](SETUP.md) for detailed instructions on running this version.
+
+
+
 
 # OpenMATB: An open-source version of the Multi-Attribute Task Battery (MATB)
 
