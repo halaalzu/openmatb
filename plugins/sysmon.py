@@ -7,6 +7,7 @@ import struct
 import math
 import io
 import wave
+from pathlib import Path
 
 try:
     import winsound
@@ -68,6 +69,7 @@ from core.widgets.abstractwidget import AbstractWidget
 from plugins.abstract import AbstractPlugin
 from pyglet.text import Label
 from pyglet.gl import GL_QUADS, GL_LINES
+from pyglet.media import Player, load
 
 
 class BoxedText(AbstractWidget):
@@ -166,6 +168,9 @@ class Sysmon(AbstractPlugin):
 
         self.automode_position = (0.5, 0.05)
         self.scale_zones = {1: list(range(3)), 0: list(range(3, 8)), -1: list(range(8, 11))}
+        self._last_automode_indicator_state = False
+        self._automation_start_sound = None
+        self._automation_start_sound_player = None
 
 
     def get_response_timers(self):
@@ -177,6 +182,11 @@ class Sysmon(AbstractPlugin):
         
         # Initialize audio system early to avoid delay on first beep
         init_audio()
+        try:
+            sound_path = Path(__file__).resolve().parents[1] / "includes" / "sounds" / "third_party" / "starting_automation.mp3"
+            self._automation_start_sound = load(str(sound_path), streaming=False)
+        except Exception:
+            self._automation_start_sound = None
         
         # Widgets coordinates (the left l coordinate is variable)
         scale_w = self.task_container.w * 0.1
@@ -446,13 +456,27 @@ class Sysmon(AbstractPlugin):
         # during the low-reliability window where automaticsolver may be False).
         automode_ind = self.get_widget('automode_indicator')
         if automode_ind is not None:
-            automode_ind.set_active(self.parameters.get('automationlabel', '') == 'AUTO')
+            is_auto_label = self.parameters.get('automationlabel', '') == 'AUTO'
+            automode_ind.set_active(is_auto_label)
+            if is_auto_label and not self._last_automode_indicator_state:
+                self._play_automation_start_sound()
+            self._last_automode_indicator_state = is_auto_label
 
 
 
     def determine_light_color(self, light):
         color = light['oncolor'] if light['on'] == True else C['BACKGROUND']
         return color
+
+    def _play_automation_start_sound(self):
+        if self._automation_start_sound is None:
+            return
+        try:
+            self._automation_start_sound_player = Player()
+            self._automation_start_sound_player.queue(self._automation_start_sound)
+            self._automation_start_sound_player.play()
+        except Exception:
+            pass
 
     def _trigger_flash(self, gauge=None, duration_ms=300):
         """Trigger a red flash effect on a specific gauge's widget.
