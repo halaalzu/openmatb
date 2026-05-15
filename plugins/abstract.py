@@ -37,7 +37,43 @@ class AbstractPlugin:
         self.visible = False                # :all the plugins widgets are shown
         self.verbose = False
 
-        self.parameters = dict(title=M.get(self.alias, self.alias.capitalize()), taskplacement=taskplacement,
+        self.        # All bars share these
+        'max_health': 100.0,
+        'min_health': 0.0,
+        'start_health': 100.0,
+        
+        # SYSMON-specific
+        'sysmon_gain_hit': 10.0,
+        'sysmon_penalty_delay': 3.0,
+        'sysmon_penalty_miss': 9.0,
+        'sysmon_penalty_fa': 10.0,
+        'sysmon_regen_per_sec': 0.0,
+        'sysmon_color_good': (0, 200, 100, 255),    # Green-ish
+        'sysmon_color_bad': (255, 100, 100, 255),   # Red-ish
+        'sysmon_label': 'SYSMON',
+        
+        # COMMUNICATIONS-specific
+        'comms_gain_correct': 15.0,
+        'comms_penalty_delay': 4.0,
+        'comms_penalty_fa': 12.0,
+        'comms_penalty_miss': 12.0,
+        'comms_regen_per_sec': 0.0,
+        'comms_color_good': (100, 150, 255, 255),   # Blue-ish
+        'comms_color_bad': (255, 150, 100, 255),    # Orange-ish
+        'comms_label': 'COMMS',
+        
+        # TRACKING-specific
+        'track_gain_ontarget': 1.0,
+        'track_penalty_offcenter': 2.0,
+        'track_regen_per_sec': 0.5,
+        'track_color_good': (100, 255, 200, 255),   # Cyan-ish
+        'track_color_bad': (255, 100, 200, 255),    # Pink-ish
+        'track_label': 'TRACK',
+        
+        # UI layout (for 3 bars)
+        'layout': 'horizontal',  # or 'vertical' - how to arrange 3 bars
+        'bar_thickness_ratio': 0.08,
+        'bar_length_ratio': 0.12,  # Each bar gets 12% (3 x 12 = 36% total)parameters = dict(title=M.get(self.alias, self.alias.capitalize()), taskplacement=taskplacement,
                                taskupdatetime=taskupdatetime,
                                taskfeedback=dict(overdue=dict(active=False, color=C['RED'],
                                                               delayms=2000,
