@@ -74,7 +74,7 @@ class AbstractPlugin:
         'layout': 'horizontal',  # or 'vertical' - how to arrange 3 bars
         'bar_thickness_ratio': 0.08,
         'bar_length_ratio': 0.12,  # Each bar gets 12% (3 x 12 = 36% total)parameters = dict(title=M.get(self.alias, self.alias.capitalize()), taskplacement=taskplacement,
-                               taskupdatetime=taskupdatetime,
+                            taskupdatetime=taskupdatetime,
                                taskfeedback=dict(overdue=dict(active=False, color=C['RED'],
                                                               delayms=2000,
                                                               blinkdurationms=1000)))
