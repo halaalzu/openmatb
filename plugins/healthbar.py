@@ -19,6 +19,9 @@ class Healthbar(AbstractPlugin):
         self.parameters.update(dict(
             max_health=100.0,
             start_health=100.0,
+            start_healthsysmon = 100.0
+            start_healthcomm = 100.0
+            start_healthnav = 100.0
             regen_per_sec=0.0,        # passive regen
             gain_hit=10.0,            # HIT from sysmon
             gain_correct=15.0,        # CORRECT from communications
@@ -48,7 +51,10 @@ class Healthbar(AbstractPlugin):
             value_font='LARGE'
         ))
 
-        self._health = self.parameters['start_health']
+        # self._health = self.parameters['start_health']
+        self._healthsysmon = self.parameters['start_health']
+        self._healthcomm = self.parameters['start_health']
+        self._healthnav = self.parameters['start_health']
 
     # ---- helpers
 
