@@ -64,17 +64,18 @@ class HealthBar(AbstractWidget):
             value_y = container_top - 2
             value_anchor_x, value_anchor_y = 'right', 'top'
 
-        # Label
-        self.vertex['label'] = Label(self.label_text,
-                                     font_size=self.label_font_size,
-                                     x=label_x,
-                                     y=label_y,
-                                     anchor_x=label_anchor_x, anchor_y=label_anchor_y,
-                                     color=self.text_color,
-                                     group=G(self.m_draw + 4),
-                                     font_name=self.font_name)
+        # Label - NOT DISPLAYED (keeping reference for compatibility)
+        self.label_props = {
+            'x': label_x, 'y': label_y,
+            'anchor_x': label_anchor_x, 'anchor_y': label_anchor_y
+        }
+        # Skip creating label to hide bar names (SYSMON, NAV, COMMS)
 
         # Value label
+        self.value_props = {
+            'x': value_x, 'y': value_y,
+            'anchor_x': value_anchor_x, 'anchor_y': value_anchor_y
+        }
         self.vertex['value'] = Label(self._health_text(),
                                      font_size=self.value_font_size,
                                      x=value_x,
@@ -86,6 +87,32 @@ class HealthBar(AbstractWidget):
 
         # Update initial fill
         self._update_fill()
+
+    def update_render_order(self):
+        """Update vertex groups to use the current m_draw value. Call before show()."""
+        # Rebuild vertex tuples with updated Group values
+        self.vertex['background'] = (4, GL_QUADS, G(self.m_draw + 1),
+                                     ('v2f/static', self.border_vertices),
+                                     ('c4B/static', self.back_color * 4))
+        self.vertex['fill'] = (4, GL_QUADS, G(self.m_draw + 2),
+                               ('v2f/dynamic', self.border_vertices),
+                               ('c4B/dynamic', self.good_color * 4))
+        self.vertex['border'] = (8, GL_LINES, G(self.m_draw + 3),
+                                 ('v2f/static', self.vertice_strip(self.border_vertices)),
+                                 ('c4B/static', self.border_color * 8))
+        # Recreate labels with new render groups
+        # Label is NOT created (hiding SYSMON/NAV/COMMS)
+        if 'value' in self.vertex:
+            props = self.value_props
+            self.vertex['value'] = Label(self._health_text(),
+                                        font_size=self.value_font_size,
+                                        x=props['x'],
+                                        y=props['y'],
+                                        anchor_x=props['anchor_x'],
+                                        anchor_y=props['anchor_y'],
+                                        color=self.text_color,
+                                        group=G(self.m_draw + 4),
+                                        font_name=self.font_name)
 
     def _health_text(self):
         from math import ceil

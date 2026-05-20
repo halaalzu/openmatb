@@ -20,7 +20,7 @@ class Frame(AbstractWidget):
 
         if fill_color is not None:
             self.add_vertex('fillarea', 4, GL_QUADS, G(draw_order),
-                            ('v2f/static', (0,)*8),
+                            ('v2f/dynamic', (0,)*8),
                             ('c4B/static', (fill_color*4)))
 
         self.add_vertex('border', 16, GL_QUADS, G(draw_order+1), ('v2f/dynamic', (0,)*32),

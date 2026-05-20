@@ -120,7 +120,7 @@ class Resman(AbstractPlugin):
 
             # Add statuslocation foreground in case it is displayed
             self.add_widget('status_foreground', Frame, status_task_container,
-                            fill_color=C['BACKGROUND'], draw_order=15)
+                            fill_color=None, draw_order=15)
 
             # Add the pump status title
             self.add_widget('status_title', Simpletext, container=status_title_container,

@@ -4,8 +4,8 @@
 from plugins.abstract import AbstractPlugin
 from plugins.healthbar_bus import drain_events
 from core.container import Container
-from core.constants import COLORS as C
-from core.widgets import HealthBar
+from core.constants import COLORS as C, FONT_SIZES as F
+from core.widgets import HealthBar, Simpletext
 
 class Healthbar(AbstractPlugin):
     """
@@ -14,6 +14,9 @@ class Healthbar(AbstractPlugin):
     """
     def __init__(self, taskplacement='invisible', taskupdatetime=80):
         super().__init__(taskplacement, taskupdatetime)
+        
+        # Force health bars to render on the topmost layer (above all other widgets)
+        self.m_draw = 999
 
         # Tunables (you can tweak live via scenario or parameters)
         self.parameters.update(dict(
@@ -21,7 +24,7 @@ class Healthbar(AbstractPlugin):
             start_health=100.0,
             min_health=0.0,
 
-            # ===== SYSTEM MONITORING BAR =====
+            # SYSTEM MONITORING BAR 
             sysmon_gain_hit=10.0,
             sysmon_penalty_delay=3.0,
             sysmon_penalty_miss=9.0,
@@ -30,14 +33,14 @@ class Healthbar(AbstractPlugin):
             sysmon_color_bad=(255, 80, 80, 255),        # Bright red
             sysmon_label='SYSMON',
 
-            # ===== NAVIGATION BAR (Tracking Task) =====
+            #  NAVIGATION BAR (Tracking Task) 
             nav_gain_ontarget=1.0,
             nav_penalty_offcenter=2.0,
             nav_color_good=(100, 255, 150, 255),        # Bright green
             nav_color_bad=(255, 80, 80, 255),           # Bright red
             nav_label='NAV',
 
-            # ===== COMMUNICATIONS BAR =====
+            #  COMMUNICATIONS BAR 
             comms_gain_correct=15.0,
             comms_penalty_delay=4.0,
             comms_penalty_fa=12.0,
@@ -47,8 +50,8 @@ class Healthbar(AbstractPlugin):
             comms_label='COMMS',
 
             # UI sizing/colors - three bars below black line
-            bar_length_ratio=0.09,    # Each bar: 9% of screen width
-            bar_thickness_ratio=0.30,  # 30% of screen height
+            bar_length_ratio=0.144,   # Each bar: 14.4% of screen width (18% reduced by 20%)
+            bar_thickness_ratio=0.30,  # 30% of screen height (reduced from 36%)
             bar_anchor='bottomright', # Align to screen bottom-right
             bar_margin_ratio=0.005,   # Very minimal margin (0.5%)
             border_color=(255, 255, 255, 255),  # Bright white border
@@ -56,8 +59,9 @@ class Healthbar(AbstractPlugin):
             text_color=(255, 255, 255, 255),   # White text
             label_font='LARGE',
             value_font='LARGE',
-            spacing_ratio=0.002,      # Minimal spacing between bars
-            top_margin_ratio=0.18     # Push down (below black line)
+            spacing_ratio=0.01,       # Spacing between bars
+            top_margin_ratio=0.0,     # Position below black line (no extra margin)
+            title_spacing_ratio=0.03  # Space between title and bar
         ))
 
         # Initialize three separate health values for each task
@@ -70,7 +74,7 @@ class Healthbar(AbstractPlugin):
     def _clamp(self, v):
         p = self.parameters
         return max(p['min_health'], min(p['max_health'], v))
-
+ 
     # ---- state handling
 
     def show(self):
@@ -126,17 +130,20 @@ class Healthbar(AbstractPlugin):
         total_width = 3 * w + 2 * spacing
         total_height = h
 
-        # Calculate starting position based on anchor (bottom-right)
+        # Calculate starting position based on anchor (bottom-center, below black line)
         if 'left' in anchor:
             start_x = margin_x
         elif 'right' in anchor:
             # Adjust further to the right to avoid covering
             start_x = self.win.width - total_width - margin_x - (self.win.width * 0.02)
-        else:  # center
+        elif 'center' in anchor:
+            # Center horizontally
+            start_x = (self.win.width - total_width) / 2
+        else:
             start_x = (self.win.width - total_width) / 2
 
         if 'bottom' in anchor:
-            # Adjust to be higher up (less margin from bottom) to stay on screen
+            # Position in the bottom area, below the black middle divider
             start_y = margin_y + (self.win.height * 0.05)
         elif 'top' in anchor:
             # Push bars down from top
@@ -144,11 +151,12 @@ class Healthbar(AbstractPlugin):
         else:  # center
             start_y = (self.win.height - total_height) / 2
 
-        # Define three bars with different colors and labels
+        # Define three bars with different colors and labels and titles
         bars_config = [
             {
                 'key': 'healthbar_sysmon',
                 'label': self.parameters['sysmon_label'],
+                'title': 'SYSTEM MONITORING',
                 'good_color': self.parameters['sysmon_color_good'],
                 'bad_color': self.parameters['sysmon_color_bad'],
                 'index': 0
@@ -156,6 +164,7 @@ class Healthbar(AbstractPlugin):
             {
                 'key': 'healthbar_nav',
                 'label': self.parameters['nav_label'],
+                'title': 'TRACKING',
                 'good_color': self.parameters['nav_color_good'],
                 'bad_color': self.parameters['nav_color_bad'],
                 'index': 1
@@ -163,6 +172,7 @@ class Healthbar(AbstractPlugin):
             {
                 'key': 'healthbar_comms',
                 'label': self.parameters['comms_label'],
+                'title': 'COMMUNICATIONS',
                 'good_color': self.parameters['comms_color_good'],
                 'bad_color': self.parameters['comms_color_bad'],
                 'index': 2
@@ -170,9 +180,26 @@ class Healthbar(AbstractPlugin):
         ]
 
         # Create three different-colored bars side-by-side
+        title_spacing = self.win.height * self.parameters['title_spacing_ratio']
+        
         for config in bars_config:
             x = start_x + config['index'] * (w + spacing)
             y = start_y
+
+            # Create black title label above the bar with very high draw order
+            title_y = y + h + title_spacing
+            title_container = Container(f"title_{config['key']}", x, title_y, w, 0)
+            
+            self.add_widget(f"title_{config['key']}", Simpletext,
+                            container=title_container,
+                            text=config['title'],
+                            font_size=int(F['MEDIUM'] * 0.9),
+                            color=C['BLACK'],
+                            draw_order=1000)
+            
+            title_widget = self.get_widget(f"title_{config['key']}")
+            if title_widget is not None:
+                title_widget.show()
 
             bar_container = Container(f"container_{config['key']}", x, y, w, h)
 
@@ -191,11 +218,13 @@ class Healthbar(AbstractPlugin):
                             label_font_key=self.parameters['label_font'],
                             value_font_key=self.parameters['value_font'])
             
-            # Try to ensure high rendering order (on top)
+            # Force the widget to have high rendering order (on top of all other widgets)
             widget = self.get_widget(config['key'])
-            if widget is not None and hasattr(widget, 'm_draw') and hasattr(widget, 'on_batch'):
-                # Set to very high draw order to ensure it's on top
-                widget.m_draw = 9999
+            if widget is not None:
+                widget.m_draw = 999
+                # Update vertex groups to reflect the new m_draw value
+                if hasattr(widget, 'update_render_order'):
+                    widget.update_render_order()
 
         # Initialize all three bars with their respective health values
         sysmon_widget = self.get_widget('healthbar_sysmon')
@@ -222,10 +251,8 @@ class Healthbar(AbstractPlugin):
         # Consume performance events and route to correct health bar
         for _, kind, source, value in drain_events():
             k = (kind or '').upper()
-            
-            # ============================================
+        
             # SYSTEM MONITORING EVENTS
-            # ============================================
             if k == 'HIT':
                 # Sysmon correct response: +10
                 self._health_sysmon = self._clamp(self._health_sysmon + self.parameters['sysmon_gain_hit'])
@@ -242,9 +269,7 @@ class Healthbar(AbstractPlugin):
                 # Sysmon false alarm: -10
                 self._health_sysmon = self._clamp(self._health_sysmon - self.parameters['sysmon_penalty_fa'])
             
-            # ============================================
             # NAVIGATION/TRACKING EVENTS
-            # ============================================
             elif k == 'TRACK_ONTARGET':
                 # Tracking cursor on-target: +1 every 500ms
                 self._health_nav = self._clamp(self._health_nav + self.parameters['nav_gain_ontarget'])
@@ -252,10 +277,8 @@ class Healthbar(AbstractPlugin):
             elif k == 'TRACK_OFFCENTER':
                 # Tracking cursor off-target: -2 every 500ms
                 self._health_nav = self._clamp(self._health_nav - self.parameters['nav_penalty_offcenter'])
-            
-            # ============================================
+
             # COMMUNICATIONS EVENTS
-            # ============================================
             elif k == 'CORRECT':
                 # Communications correct frequency: +15
                 self._health_comms = self._clamp(self._health_comms + self.parameters['comms_gain_correct'])
