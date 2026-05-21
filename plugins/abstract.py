@@ -33,12 +33,12 @@ class AbstractPlugin:
                                             #  If True
         self.blocking = False               # :blocks all other plugins when alive
         self.alive = False                  # :is started and not yet stopped
-        self.paused = True                  # :is not updated and cannot receive inputs
+        self.paused = False                  # :is not updated and cannot receive inputs
         self.visible = False                # :all the plugins widgets are shown
         self.verbose = False
 
         self.parameters = dict(title=M.get(self.alias, self.alias.capitalize()), taskplacement=taskplacement,
-                               taskupdatetime=taskupdatetime,
+                               taskupdatetime=taskupdatetime, pause=False,
                                taskfeedback=dict(overdue=dict(active=False, color=C['RED'],
                                                               delayms=2000,
                                                               blinkdurationms=1000)))
@@ -225,7 +225,10 @@ class AbstractPlugin:
             self.get_widget('automode').set_text(self.automode_string)
 
         if self.display_title == True:
-            self.get_widget('task_title').set_text(self.parameters['title'].upper())
+            title_text = self.parameters['title'].upper()
+            if self.paused:
+                title_text += " ⏸ PAUSED"
+            self.get_widget('task_title').set_text(title_text)
 
 
         # Update the overdue feedback state if relevant
@@ -347,6 +350,12 @@ class AbstractPlugin:
 
 
     def set_parameter(self, keys_str, value):
+        if keys_str == 'pause':
+            pause_value = str(value).strip().lower() in ('true', '1', 'yes')
+            self.paused = pause_value
+            self.parameters['pause'] = pause_value
+            return self.parameters
+
         keys_list = keys_str.split('-')
         dic = self.parameters
         for key in keys_list[:-1]:

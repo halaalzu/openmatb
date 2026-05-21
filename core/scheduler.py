@@ -55,6 +55,9 @@ class Scheduler:
         self.start_signal_sent = False
         self.end_signal_sent = False
         self.user_aborted = False
+        
+        # Track individually paused tasks (from pause events)
+        self.task_pause_status = {}  # e.g., {'sysmon': True, 'track': False}
 
         # Create the event loop
         self.clock.schedule(self.update)
@@ -249,6 +252,17 @@ class Scheduler:
             return event
 
         return None
+
+
+    def get_paused_tasks(self):
+        """Return a list of task names that are currently paused via pause events"""
+        paused = []
+        for task_name in ['sysmon', 'track', 'communications']:
+            if task_name in self.plugins:
+                plugin = self.plugins[task_name]
+                if plugin.paused:
+                    paused.append(task_name)
+        return paused
 
 
     def exit(self):

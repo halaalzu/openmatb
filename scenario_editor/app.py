@@ -42,12 +42,13 @@ TYPE_COLOR: dict[str, str] = {
     "sysmon": "#27ae60",
     "comms":  "#2980b9",
     "report": "#9b59b6",
+    "pause":  "#e67e22",
 }
 SELECTED_COLOR = "#f1c40f"  # bright yellow for selected event
 
 # Track order top→bottom in the figure
 # (px.timeline y-axis is bottom→top, so we reverse for category_orders)
-TRACKS_TOP_DOWN = ["Visual", "Sysmon", "Comms", "Report"]
+TRACKS_TOP_DOWN = ["Visual", "Pause", "Sysmon", "Comms", "Report"]
 TRACKS_BOTTOM_UP = list(reversed(TRACKS_TOP_DOWN))
 
 GAUGES = ["scales-1", "scales-2", "scales-3", "scales-4", "lights-1", "lights-2"]
@@ -196,11 +197,13 @@ def event_mode_for_event(e: dict, sections: list[dict]) -> str:
 # ── Event classification ──────────────────────────────────────────────────────
 
 def classify(e: dict) -> str | None:
-    """Return 'sysmon' | 'comms' | 'report' | None."""
+    """Return 'sysmon' | 'comms' | 'report' | 'pause' | None."""
     if e.get("_type") != "event":
         return None
     p, cmd = e["plugin"], e["command"]
     v = str(e.get("value") or "").strip().lower()
+    if cmd == "pause":
+        return "pause"
     if p == "sysmon" and "failure" in cmd and v in ("true", "1"):
         return "sysmon"
     if p == "communications" and cmd == "radioprompt":
@@ -223,6 +226,10 @@ def ev_label(e: dict, kind: str) -> str:
         return f"{pfx} {num}"
     if kind == "comms":
         return f"Comm / {e.get('value', '?')}"
+    if kind == "pause":
+        task = e.get("plugin", "?").capitalize()
+        action = "Pause" if str(e.get("value", "")).lower() in ("true", "1") else "Resume"
+        return f"{action} {task}"
     return "Report"
 
 
@@ -231,6 +238,8 @@ def ev_duration(kind: str, cfg: dict) -> float:
         return cfg["alerttimeout"]
     if kind == "comms":
         return cfg["audio_dur"] + cfg["maxresponsedelay"]
+    if kind == "pause":
+        return 1.0  # Show pause events as 1 second on timeline
     return cfg["report_dur"]
 
 
@@ -250,6 +259,22 @@ def build_figure(
     ev_only = [e for e in events if e.get("_type") == "event"]
     max_sec = max((e["time_sec"] for e in ev_only), default=360)
 
+    # Build a map of pause durations: for each pause event, find matching resume
+    pause_durations = {}  # key: (task, pause_time) -> duration in seconds
+    for e in ev_only:
+        if classify(e) == "pause":
+            task = e["plugin"]
+            is_pause = str(e.get("value", "")).lower() in ("true", "1")
+            if is_pause:
+                # Find matching resume event
+                for future_e in ev_only:
+                    if (classify(future_e) == "pause" 
+                        and future_e["plugin"] == task
+                        and future_e["time_sec"] > e["time_sec"]
+                        and str(future_e.get("value", "")).lower() in ("false", "0")):
+                        pause_durations[(task, e["time_sec"])] = future_e["time_sec"] - e["time_sec"]
+                        break
+
     rows: list[dict] = []
     # Also collect positions for optional start/end markers
     start_xs: list = []; start_ys: list = []; start_cs: list = []
@@ -260,14 +285,30 @@ def build_figure(
         if kind is None:
             continue
         mode = event_mode_for_event(e, sections)
-        dur  = ev_duration(kind, cfg)
+        
+        # Special handling for pause events: use calculated duration or default
+        if kind == "pause":
+            is_pause = str(e.get("value", "")).lower() in ("true", "1")
+            if is_pause:  # Only show pause events, skip resume
+                dur = pause_durations.get((e["plugin"], e["time_sec"]), 60.0)  # default 60s
+            else:
+                continue  # Skip resume events
+        else:
+            dur = ev_duration(kind, cfg)
+        
         sel  = e["_idx"] == selected_idx
         col  = ev_color(kind, sel)
         lbl  = ev_label(e, kind)
-        edit_track = {"sysmon": "Sysmon", "comms": "Comms", "report": "Report"}[kind]
+        if kind == "pause":
+            edit_track = "Pause"
+        else:
+            edit_track = {"sysmon": "Sysmon", "comms": "Comms", "report": "Report"}[kind]
         dur_clamped = max(dur, 0.5)
 
-        for track in ("Visual", edit_track):
+        # For pause events, only show on Pause track (not Visual)
+        tracks_to_show = ("Pause",) if kind == "pause" else ("Visual", edit_track)
+        
+        for track in tracks_to_show:
             rows.append({
                 "Track":  track,
                 "Start":  dt(e["time_sec"]),
@@ -280,12 +321,14 @@ def build_figure(
                 "Time":   sec_to_hms(e["time_sec"]),
                 "Dur":    f"{dur:.0f}s",
             })
-            start_xs.append(dt(e["time_sec"]))
-            start_ys.append(track)
-            start_cs.append(col)
-            end_xs.append(dt(e["time_sec"] + dur_clamped))
-            end_ys.append(track)
-            end_cs.append(col)
+            # Don't add start/end markers for pause events
+            if kind != "pause":
+                start_xs.append(dt(e["time_sec"]))
+                start_ys.append(track)
+                start_cs.append(col)
+                end_xs.append(dt(e["time_sec"] + dur_clamped))
+                end_ys.append(track)
+                end_cs.append(col)
 
     if not rows:
         fig = go.Figure()
@@ -362,14 +405,25 @@ def build_figure(
         line_color="rgba(255,255,255,0.15)", line_width=1, line_dash="dot",
     )
 
-    tick_step = 30
-    tick_vals = [dt(t) for t in range(0, int(max_sec) + tick_step + 1, tick_step)]
-    tick_text = [sec_to_hms(t) for t in range(0, int(max_sec) + tick_step + 1, tick_step)]
+    # Set smart tick spacing based on scenario duration
+    if max_sec <= 120:
+        tick_step = 15  # Every 15 seconds for short scenarios
+    elif max_sec <= 300:
+        tick_step = 30  # Every 30 seconds for medium scenarios
+    else:
+        tick_step = 60  # Every 60 seconds for long scenarios
+    
+    tick_vals = [dt(t) for t in range(0, int(max_sec) + tick_step, tick_step)]
+    tick_text = [sec_to_hms(t) for t in range(0, int(max_sec) + tick_step, tick_step)]
 
     fig.update_xaxes(
-        tickvals=tick_vals, ticktext=tick_text, title="",
-        gridcolor="rgba(255,255,255,0.07)", zeroline=False,
-        range=[dt(-5), dt(max_sec + 15)],
+        tickvals=tick_vals, 
+        ticktext=tick_text, 
+        title=dict(text="Time (MM:SS)", font=dict(size=11, color="#888")),
+        gridcolor="rgba(255,255,255,0.07)", 
+        zeroline=False,
+        range=[dt(-3), dt(max_sec + 10)],
+        tickfont=dict(size=10),
     )
     fig.update_yaxes(
         title="", gridcolor="rgba(255,255,255,0.07)",
@@ -590,6 +644,90 @@ def detail_editor(events: list[dict], sel_idx: int, cfg: dict) -> list[dict] | N
         return result
 
     return None
+
+# ── Task pause form ───────────────────────────────────────────────────────────
+
+def add_pause_form(events: list[dict]) -> list[dict] | None:
+    """
+    Form to pause/unpause individual tasks (track, sysmon, communications).
+    Creates events like: 0:02:00;track;pause;True
+    """
+    with st.form(key="add_pause", clear_on_submit=True):
+        st.markdown(
+            '<div style="padding-bottom:8px; font-size:0.9em; color:#aaa">'
+            '<b>⏸️ Pause or Resume a Task</b></div>',
+            unsafe_allow_html=True,
+        )
+        
+        time_str = st.text_input(
+            "Start time (H:MM:SS)",
+            value="0:02:00",
+            help="When the pause/resume should occur",
+        )
+        
+        task = st.selectbox(
+            "Select task",
+            ["track", "sysmon", "communications"],
+            help="Which task to pause or resume",
+        )
+        
+        action = st.radio(
+            "Action",
+            ["Pause", "Resume"],
+            horizontal=True,
+            help="Pause stops the task, Resume starts it again",
+        )
+        
+        duration_str = st.text_input(
+            "Duration (seconds) — optional",
+            value="",
+            placeholder="e.g., 60 or 120",
+            help="If set, automatically creates a resume event after this many seconds",
+        )
+        
+        st.markdown(
+            '<div style="font-size:0.75em; color:#666; padding-top:4px;margin-bottom:8px">'
+            '💡 Tip: Set a duration to automatically resume — creates both pause and resume events'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        
+        submitted = st.form_submit_button("➕ Add pause/resume", type="primary", use_container_width=True)
+        if not submitted:
+            return None
+
+        try:
+            start_t = hms_to_sec(time_str)
+        except Exception:
+            st.error("Bad start time — use H:MM:SS")
+            return None
+
+        result = copy.deepcopy(events)
+        nidx = next_idx(result)
+        
+        # Add pause/resume event
+        pause_value = "True" if action == "Pause" else "False"
+        result.append({
+            "_idx": nidx, "_type": "event",
+            "time_sec": start_t, "plugin": task,
+            "command": "pause", "value": pause_value,
+        })
+        
+        # If duration specified, add resume event
+        if duration_str.strip():
+            try:
+                duration = float(duration_str.strip())
+                resume_t = start_t + duration
+                result.append({
+                    "_idx": nidx + 1, "_type": "event",
+                    "time_sec": resume_t, "plugin": task,
+                    "command": "pause", "value": "False",
+                })
+            except ValueError:
+                st.error("Invalid duration — use a number in seconds")
+                return None
+
+        return result
 
 # ── Add-event forms ───────────────────────────────────────────────────────────
 
@@ -881,6 +1019,7 @@ def main() -> None:
             '<span style="color:#27ae60">█</span> Sysmon<br>'
             '<span style="color:#2980b9">█</span> Comm<br>'
             '<span style="color:#9b59b6">█</span> Report<br>'
+            '<span style="color:#e67e22">█</span> Pause/Resume<br>'
             '<span style="color:#f1c40f">█</span> Selected<br>'
             '<br>'
             '<span style="background:rgba(46,204,113,0.25);padding:1px 5px;border-radius:3px">'
@@ -963,7 +1102,7 @@ def main() -> None:
 
     # Add event row
     st.markdown("**Add event**")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         with st.expander("➕ Sysmon failure"):
             nev = add_event_form(events, "sysmon")
@@ -979,6 +1118,12 @@ def main() -> None:
     with c3:
         with st.expander("➕ Report"):
             nev = add_event_form(events, "report")
+            if nev is not None:
+                st.session_state.events = nev
+                st.rerun()
+    with c4:
+        with st.expander("⏸️ Pause/Resume task"):
+            nev = add_pause_form(events)
             if nev is not None:
                 st.session_state.events = nev
                 st.rerun()

@@ -449,6 +449,7 @@ validation_dict = {
     'title': is_string,
     'taskplacement': is_task_location,
     'taskupdatetime': is_positive_integer,
+    'pause': is_boolean,
 
 
     # Shared values #
