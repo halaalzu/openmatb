@@ -34,7 +34,8 @@ class OpenMATB:
         window = Window(style=style)
 
         if not REPLAY_MODE:
-            content = Scenario()    
+            content = Scenario()
+            logger.log_manual_entry(f'Scenario object created: events={len(content.events)}, plugins={len(getattr(content, "plugins", {}))}', key='startup')
             cls = Scheduler
         else:
             content = LogReader()

@@ -3,6 +3,7 @@
 # License : CeCILL, version 2.1 (see the LICENSE file)
 
 import re
+from pathlib import Path
 from pyglet.window import key as winkey
 from core.constants import COLORS as C, PATHS as P, REPLAY_MODE
 from core.logger import logger
@@ -78,12 +79,27 @@ class Scenario:
         self.plugins = dict()
 
         if contents is None:
-            scenario_path = P['SCENARIOS'].joinpath(get_conf_value('Openmatb', 'scenario_path'))
-            if scenario_path.exists():
-                contents = open(scenario_path, 'r', encoding='utf-8').readlines()
-                logger.log_manual_entry(scenario_path, key='scenario_path')
+            scen_conf = get_conf_value('Openmatb', 'scenario_path')
+
+            # Try candidate paths: first the configured value as-is, then
+            # relative to the scenarios folder. This allows both full
+            # paths like 'includes/scenarios/...' and simple filenames.
+            candidates = [Path(scen_conf)]
+            if not candidates[0].is_absolute():
+                candidates.append(P['SCENARIOS'].joinpath(scen_conf))
+
+            contents = None
+            used_path = None
+            for cand in candidates:
+                if cand.exists():
+                    contents = cand.open('r', encoding='utf-8').readlines()
+                    used_path = cand
+                    break
+
+            if contents is not None:
+                logger.log_manual_entry(str(used_path), key='scenario_path')
             else:
-                errors.add_error(_('%s was not found') % str(scenario_path), fatal = True)
+                errors.add_error(_('%s was not found') % str(candidates[-1]), fatal = True)
 
         # Convert the scenario content into a list of events #
         # (Squeeze empty and commented [#] lines)
@@ -543,6 +559,7 @@ validation_dict = {
     'promptlist': (is_in_list, ['NAV_1', 'NAV_2', 'COM_1', 'COM_2']),
     'maxresponsedelay': is_positive_integer,
     'callsignregex': is_a_regex,
+    'enablefreqconfirmation': is_boolean,
 
 
     # Resources management

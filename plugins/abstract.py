@@ -135,6 +135,9 @@ class AbstractPlugin:
         if self.verbose:
             print('Stop ', self.alias)
         self.alive = False
+        # For blocking plugins, ensure blocking is set to False to avoid inconsistent state
+        if hasattr(self, 'blocking'):
+            self.blocking = False
         self.pause()
         self.hide()
 

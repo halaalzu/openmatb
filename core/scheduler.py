@@ -4,6 +4,7 @@
 
 import sys
 from pyglet.app import EventLoop
+from time import perf_counter
 from core.scenario import Event
 from core.clock import Clock
 from core.modaldialog import ModalDialog
@@ -24,6 +25,8 @@ class Scheduler:
         self.win = window
         self.events = scenario.events
         self.plugins = scenario.plugins
+
+        logger.log_manual_entry(f'Scheduler init: events={len(self.events)}, plugins={len(self.plugins)}', key='scheduler')
 
         # Attribute window to plugins in use, and push their handles to window
         for p in self.plugins:
@@ -62,6 +65,8 @@ class Scheduler:
         # Create the event loop
         self.clock.schedule(self.update)
         self.event_loop = EventLoop()
+        from time import perf_counter
+        self._started_at = perf_counter()
 
 
     def initialize_plugins(self):
@@ -95,10 +100,6 @@ class Scheduler:
 
 
     def check_if_must_exit(self):
-        # If no active plugin, and no remaining events, close the OpenMATB
-        if len(self.get_active_plugins()) == 0 and len(self.events_queue) == 0:
-            self.exit()
-
         # If the windows has been killed, exit the program
         if self.win.alive == False:
             self.user_aborted = True
@@ -108,6 +109,31 @@ class Scheduler:
                 if plugin.alive == True:
                     stop_event = Event(0, int(self.scenario_time), p_name, 'stop')
                     self.execute_one_event(stop_event)
+            self.exit()
+            return
+
+        # If a modal was just closed, allow a small grace period for the
+        # scheduler to process initial events before deciding to exit. This
+        # avoids a race where closing a startup modal immediately triggers
+        # an exit in the same update tick.
+        try:
+            last_closed = getattr(self.win, '_modal_closed_at', None)
+            if last_closed is not None and (perf_counter() - last_closed) < 0.25:
+                return
+        except Exception:
+            pass
+
+        # Avoid exiting too quickly after startup — give plugins a short
+        # chance to initialize. This prevents immediate exit if plugin
+        # instantiation is delayed or modal was just dismissed.
+        try:
+            if (perf_counter() - self._started_at) < 0.5:
+                return
+        except Exception:
+            pass
+
+        # If no active plugin and no remaining queued event, close OpenMATB.
+        if len(self.get_active_plugins()) == 0 and len(self.events_queue) == 0:
             self.exit()
 
 
@@ -158,7 +184,8 @@ class Scheduler:
 
 
     def get_active_blocking_plugin(self):
-        p = self.get_plugins_by_states([('blocking', True), ('paused', False)])
+        # A blocking plugin must be alive to actually pause scenario progression.
+        p = self.get_plugins_by_states([('alive', True), ('blocking', True), ('paused', False)])
         if len(p) > 0:
             return p[0]
 

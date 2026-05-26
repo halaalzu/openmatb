@@ -8,6 +8,7 @@ from pyglet.text import HTMLLabel, Label
 from core.container import Container
 from pyglet.gl import *
 from core.logger import logger
+from time import perf_counter
 from core.constants import FONT_SIZES as F, PATHS as P, Group as G, COLORS as C
 from core.utils import get_conf_value
 
@@ -106,6 +107,14 @@ class ModalDialog:
             if v is not None:
                 v.delete()
         logger.log_manual_entry(f"{self.name} end", key='dialog')
+        # Record the moment the modal was closed so the scheduler can avoid
+        # exiting immediately on the same tick (race condition between modal
+        # dismissal and scheduler exit). Use a short grace period in the
+        # scheduler to allow events to be processed.
+        try:
+            self.win._modal_closed_at = perf_counter()
+        except Exception:
+            pass
         self.win.modal_dialog = None
 
 

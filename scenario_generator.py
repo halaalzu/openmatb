@@ -45,7 +45,7 @@ SCENARIO_NAME = 'incapacitation'
 # Specify a scenario that should be added at the beginning
 ADD_SCENARIO_PATH = PATHS['SCENARIOS'].joinpath('custom_generator.txt')
 
-win = Window(0, '', False, False, False, False)
+win = Window()
 win.set_visible(False)
 
 # Plugin instances #
