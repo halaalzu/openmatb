@@ -308,6 +308,13 @@ class Communications(AbstractPlugin):
            
         elif self.is_key_state('RIGHT', True):
             self.get_active_radio_dict()['currentfreq'] += self.frequency_modulation
+
+
+    def _frequency_matches_target(self, radio):
+        target_frequency = radio.get('targetfreq')
+        if target_frequency is None:
+            return False
+        return round(radio['currentfreq'], 1) == round(target_frequency, 1)
           
 
 
@@ -438,6 +445,10 @@ class Communications(AbstractPlugin):
         active['currentfreq'] = self.keep_value_between(active['currentfreq'],
                                                         up=self.parameters['airbandmaxMhz'],
                                                         down=self.parameters['airbandminMhz'])
+
+        if len(self.get_waiting_response_radios()) > 0 and active in self.get_waiting_response_radios():
+            if self._frequency_matches_target(active):
+                self.confirm_response()
 
         # Feedback handling
         for r, radio in self.parameters['radios'].items():
@@ -578,7 +589,7 @@ class Communications(AbstractPlugin):
         if measure_radio is not None:
             target_frequency = measure_radio['targetfreq']
             target_radio_name = measure_radio['name']
-            deviation = round(responded_radio['currentfreq'] - target_frequency, 1)
+            deviation = 0.0 if self._frequency_matches_target(responded_radio) else round(responded_radio['currentfreq'] - target_frequency, 1)
             rt = measure_radio['response_time']
         else:
             deviation = rt = target_frequency = target_radio_name = float('nan')
