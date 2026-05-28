@@ -33,6 +33,22 @@ try:
 except Exception:
     REPORT_OPTIONS = ["REPORT"]
 
+
+def get_report_choices(current_value: str | None = None) -> list[str]:
+    """Return report dropdown choices with REPORT always available as fallback."""
+    choices: list[str] = []
+    for item in REPORT_OPTIONS:
+        text = str(item).strip()
+        if text and text not in choices:
+            choices.append(text)
+    if "REPORT" not in choices:
+        choices.insert(0, "REPORT")
+    if current_value is not None and current_value not in choices:
+        # Keep unknown scenario text selectable via the fallback entry.
+        # We map it to REPORT so the UI remains stable.
+        return choices
+    return choices
+
 # Anchor date for Plotly's date-based x-axis (we show MM:SS ticks)
 BASE_DT = datetime(2000, 1, 1)
 
@@ -533,8 +549,8 @@ def detail_editor(events: list[dict], sel_idx: int, cfg: dict) -> list[dict] | N
 
     elif kind == "report":
         cur_val = str(e.get("value") or "")
-        reports = REPORT_OPTIONS if REPORT_OPTIONS else ["REPORT"]
-        cur_idx = reports.index(cur_val) if cur_val in reports else 0
+        reports = get_report_choices(cur_val)
+        cur_idx = reports.index(cur_val) if cur_val in reports else reports.index("REPORT")
         with col_a:
             new_report = st.selectbox("Report text", reports, index=cur_idx, key=f"ed_report_{sel_idx}")
 
@@ -763,12 +779,8 @@ def add_event_form(events: list[dict], kind: str) -> list[dict] | None:
             ptype = cols[1].selectbox("Type", ["own", "other"])
         elif kind == "report":
             # Let user pick a predefined report text from includes/report_options.json
-            reports = REPORT_OPTIONS if REPORT_OPTIONS else ["REPORT"]
-            rpt_idx = 0
-            try:
-                rpt_idx = reports.index("REPORT") if "REPORT" in reports else 0
-            except Exception:
-                rpt_idx = 0
+            reports = get_report_choices()
+            rpt_idx = reports.index("REPORT") if "REPORT" in reports else 0
             # Use middle column for the dropdown
             report_text = cols[1].selectbox("Report text", reports, index=rpt_idx)
 
