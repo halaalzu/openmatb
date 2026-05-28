@@ -16,12 +16,22 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import json
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 # OPENMATB_ROOT lets packaged launcher point the editor at the sibling MATB bundle.
 ROOT = Path(os.getenv("OPENMATB_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 SCENARIOS_DIR = ROOT / "includes" / "scenarios"
 sys.path.insert(0, str(ROOT))
+
+# Load report options JSON (used to populate report dropdowns)
+REPORT_OPTIONS_FILE = ROOT / "includes" / "report_options.json"
+try:
+    REPORT_OPTIONS = json.loads(REPORT_OPTIONS_FILE.read_text(encoding="utf-8")).get("reports", [])
+    if not isinstance(REPORT_OPTIONS, list):
+        REPORT_OPTIONS = [str(REPORT_OPTIONS)]
+except Exception:
+    REPORT_OPTIONS = ["REPORT"]
 
 # Anchor date for Plotly's date-based x-axis (we show MM:SS ticks)
 BASE_DT = datetime(2000, 1, 1)
@@ -521,6 +531,13 @@ def detail_editor(events: list[dict], sel_idx: int, cfg: dict) -> list[dict] | N
                 key=f"ed_ptype_{sel_idx}",
             )
 
+    elif kind == "report":
+        cur_val = str(e.get("value") or "")
+        reports = REPORT_OPTIONS if REPORT_OPTIONS else ["REPORT"]
+        cur_idx = reports.index(cur_val) if cur_val in reports else 0
+        with col_a:
+            new_report = st.selectbox("Report text", reports, index=cur_idx, key=f"ed_report_{sel_idx}")
+
     with col_t:
         apply  = st.button("✔ Apply", key=f"ed_apply_{sel_idx}",  type="primary",  use_container_width=True)
     with col_del:
@@ -607,6 +624,8 @@ def detail_editor(events: list[dict], sel_idx: int, cfg: dict) -> list[dict] | N
 
         elif kind == "comms":
             target["value"] = new_ptype
+        elif kind == "report":
+            target["value"] = new_report
 
         return result
 
@@ -742,7 +761,16 @@ def add_event_form(events: list[dict], kind: str) -> list[dict] | None:
             side_val = SIDE_MAP[side_sel]
         elif kind == "comms":
             ptype = cols[1].selectbox("Type", ["own", "other"])
-        # report has no extra params
+        elif kind == "report":
+            # Let user pick a predefined report text from includes/report_options.json
+            reports = REPORT_OPTIONS if REPORT_OPTIONS else ["REPORT"]
+            rpt_idx = 0
+            try:
+                rpt_idx = reports.index("REPORT") if "REPORT" in reports else 0
+            except Exception:
+                rpt_idx = 0
+            # Use middle column for the dropdown
+            report_text = cols[1].selectbox("Report text", reports, index=rpt_idx)
 
         submitted = st.form_submit_button(f"➕ Add {kind}")
         if not submitted:
@@ -779,7 +807,7 @@ def add_event_form(events: list[dict], kind: str) -> list[dict] | None:
             result.append({
                 "_idx": nidx, "_type": "event",
                 "time_sec": t, "plugin": "sysmon",
-                "command": "report", "value": None,
+                "command": "report", "value": str(report_text),
             })
 
         return result
