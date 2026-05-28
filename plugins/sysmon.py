@@ -92,18 +92,36 @@ class BoxedText(AbstractWidget):
                        ('v2f/static', self.vertice_strip(self.border_vertices)),
                        ('c4B/static', border_color*8))
 
-        # Text
+        # Text (multiline, will shrink to fit)
         x = self.container.cx
         y = self.container.cy
-        self.vertex['text'] = Label(text, font_size=font_size, x=x, y=y,
-                                   anchor_x='center', anchor_y='center', 
-                                   color=text_color, group=G(self.m_draw + draw_order + 2),
-                                   font_name=self.font_name)
+        self._font_size = font_size
+        self._min_font_size = 8
+        # Use multiline Label with width equal to container width (in pixels)
+        self.vertex['text'] = Label(text,
+                       font_size=self._font_size,
+                       x=x, y=y,
+                       anchor_x='center', anchor_y='center',
+                       color=text_color, group=G(self.m_draw + draw_order + 2),
+                       font_name=self.font_name,
+                       width=int(self.container.w),
+                       multiline=True)
 
     def set_text(self, text):
         if text == self.get_text():
             return
-        self.vertex['text'].text = text
+        lbl = self.vertex['text']
+        lbl.text = text
+        # Shrink font until text height fits inside container (with small padding)
+        max_h = int(self.container.h * 0.9)
+        # If current content_height is not available, try to access layout height
+        try:
+            content_h = lbl.content_height
+        except Exception:
+            content_h = getattr(lbl, 'content_height', None) or 0
+
+        while getattr(lbl, 'content_height', 0) > max_h and lbl.font_size > self._min_font_size:
+            lbl.font_size = max(self._min_font_size, int(lbl.font_size * 0.9))
         self.logger.record_state(self.name, 'text', text)
 
     def get_text(self):
@@ -633,10 +651,17 @@ class Sysmon(AbstractPlugin):
                 if self.parameters['feedbacks']['negative']['active']:
                     self.set_scale_feedback(gauge, 'negative')
 
-    def report(self):
+    def report(self, text=None):
         """
         Public method that can be triggered from the scenario file: "...;sysmon;report"
-        Shows a red textbox with the word REPORT for the specified duration
+        Optionally accepts a text argument: "...;sysmon;report;Some text"
+        Shows a red textbox with the provided text (or default) for the specified duration
         """
+        if text is not None:
+            try:
+                self.get_widget('report').set_text(text)
+            except Exception:
+                # Fallback: set parameter default text
+                self.parameters['report']['text'] = text
         self.parameters['report']['_visible'] = True
         self.parameters['report']['_timer'] = self.parameters['report']['duration']

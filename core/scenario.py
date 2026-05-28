@@ -229,7 +229,14 @@ class Scenario:
                     errors.append(_('Error on line %s. Method (%s) is not available for the plugin'
                                     ' (%s)') % (e.line, e.command[0], e.plugin))
 
-            elif len(e) == 2:  # Parameter expected
+            elif len(e) == 2:
+                # Could be either a parameter (parameter;value) OR a method with an argument (method;arg)
+                # If the command corresponds to a plugin method, accept it as method-with-arg.
+                if e.command[0] in self.get_plugin_methods(e.plugin):
+                    # method with argument: accept strings (no further validation)
+                    continue
+
+                # Otherwise treat as parameter expected
                 new_value = None
                 current_value, exists = self.get_parameters_value(e.plugin, e.command)
 
