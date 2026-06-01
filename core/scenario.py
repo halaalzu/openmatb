@@ -98,8 +98,11 @@ class Scenario:
 
             if contents is not None:
                 logger.log_manual_entry(str(used_path), key='scenario_path')
+                # expose the actual file used so other components can reference it
+                self.used_path = used_path
             else:
                 errors.add_error(_('%s was not found') % str(candidates[-1]), fatal = True)
+                self.used_path = None
 
         # Convert the scenario content into a list of events #
         # (Squeeze empty and commented [#] lines)

@@ -43,10 +43,10 @@ def get_report_choices(current_value: str | None = None) -> list[str]:
             choices.append(text)
     if "REPORT" not in choices:
         choices.insert(0, "REPORT")
+    # If caller provided a current value not in the predefined list,
+    # keep it selectable (insert at front) so editors don't lose unknown texts.
     if current_value is not None and current_value not in choices:
-        # Keep unknown scenario text selectable via the fallback entry.
-        # We map it to REPORT so the UI remains stable.
-        return choices
+        choices.insert(0, current_value)
     return choices
 
 # Anchor date for Plotly's date-based x-axis (we show MM:SS ticks)
@@ -234,7 +234,9 @@ def classify(e: dict) -> str | None:
         return "sysmon"
     if p == "communications" and cmd == "radioprompt":
         return "comms"
-    if p == "sysmon" and cmd == "report" and not v:
+    # Any sysmon 'report' command should be treated as a report event,
+    # whether it carries a text value or not.
+    if p == "sysmon" and cmd == "report":
         return "report"
     return None
 
@@ -550,9 +552,21 @@ def detail_editor(events: list[dict], sel_idx: int, cfg: dict) -> list[dict] | N
     elif kind == "report":
         cur_val = str(e.get("value") or "")
         reports = get_report_choices(cur_val)
-        cur_idx = reports.index(cur_val) if cur_val in reports else reports.index("REPORT")
+        if "Custom..." not in reports:
+            reports.append("Custom...")
+        if cur_val in reports:
+            cur_idx = reports.index(cur_val)
+        elif cur_val:
+            cur_idx = reports.index("Custom...")
+        else:
+            cur_idx = reports.index("REPORT") if "REPORT" in reports else 0
         with col_a:
             new_report = st.selectbox("Report text", reports, index=cur_idx, key=f"ed_report_{sel_idx}")
+        with col_b:
+            if new_report == "Custom...":
+                custom_report = col_b.text_input("Custom report text", value=(cur_val if cur_val not in reports else ""), key=f"ed_report_custom_{sel_idx}")
+            else:
+                custom_report = ""
 
     with col_t:
         apply  = st.button("✔ Apply", key=f"ed_apply_{sel_idx}",  type="primary",  use_container_width=True)
@@ -641,7 +655,11 @@ def detail_editor(events: list[dict], sel_idx: int, cfg: dict) -> list[dict] | N
         elif kind == "comms":
             target["value"] = new_ptype
         elif kind == "report":
-            target["value"] = new_report
+            # If user entered custom text, prefer it; otherwise use selected choice
+            if 'custom_report' in locals() and custom_report and str(custom_report).strip():
+                target["value"] = str(custom_report).strip()
+            else:
+                target["value"] = new_report if new_report != "Custom..." else "REPORT"
 
         return result
 
@@ -778,11 +796,18 @@ def add_event_form(events: list[dict], kind: str) -> list[dict] | None:
         elif kind == "comms":
             ptype = cols[1].selectbox("Type", ["own", "other"])
         elif kind == "report":
-            # Let user pick a predefined report text from includes/report_options.json
-            reports = get_report_choices()
-            rpt_idx = reports.index("REPORT") if "REPORT" in reports else 0
-            # Use middle column for the dropdown
-            report_text = cols[1].selectbox("Report text", reports, index=rpt_idx)
+                # Let user pick a predefined report text from includes/report_options.json
+                reports = get_report_choices()
+                # Offer a Custom option and an adjacent text field to type free text
+                if "Custom..." not in reports:
+                    reports.append("Custom...")
+                rpt_idx = reports.index("REPORT") if "REPORT" in reports else 0
+                # Use middle column for the dropdown
+                report_sel = cols[1].selectbox("Report text", reports, index=rpt_idx, key="add_report_sel")
+                if report_sel == "Custom...":
+                    report_text = cols[2].text_input("Custom report text", value="", key="add_report_custom")
+                else:
+                    report_text = str(report_sel)
 
         submitted = st.form_submit_button(f"➕ Add {kind}")
         if not submitted:

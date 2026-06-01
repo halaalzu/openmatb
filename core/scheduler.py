@@ -3,6 +3,8 @@
 # License : CeCILL, version 2.1 (see the LICENSE file)
 
 import sys
+import os
+import time
 from pyglet.app import EventLoop
 from time import perf_counter
 from core.scenario import Event
@@ -48,6 +50,14 @@ class Scheduler:
         self.pause_scenario_time = False
         self.scenario_time = 0
 
+        # Live-reload support: remember scenario source path and mtime
+        self.scenario_path = getattr(scenario, 'used_path', None)
+        try:
+            self._scenario_mtime = os.path.getmtime(self.scenario_path) if self.scenario_path else None
+        except Exception:
+            self._scenario_mtime = None
+        self._last_mtime_check = 0.0
+
         # We store events in a list in case their execution is delayed by a blocking event
         self.events_queue = list()
         self.blocking_plugin = None
@@ -90,6 +100,21 @@ class Scheduler:
         if not self.is_scenario_time_paused():
             self.scenario_time += dt
             logger.set_scenario_time(self.scenario_time)
+
+        # Periodically check if scenario file changed on disk (once per second)
+        try:
+            now = time.time()
+            if self.scenario_path and (now - self._last_mtime_check) > 1.0:
+                self._last_mtime_check = now
+                mtime = os.path.getmtime(self.scenario_path)
+                if self._scenario_mtime is None:
+                    self._scenario_mtime = mtime
+                elif mtime != self._scenario_mtime:
+                    logger.log_manual_entry(f'Scenario file changed on disk: reloading {self.scenario_path}', key='scenario_reload')
+                    self._scenario_mtime = mtime
+                    self.reload_events_from_file()
+        except Exception:
+            pass
 
 
     def update_active_plugins(self):
@@ -217,9 +242,24 @@ class Scheduler:
                 self.win.imotions_bridge.on_task_end()
                 self.end_signal_sent = True
 
-        # If two arguments in the 'command' field, suppose a (parameter, value) to update
+        # If two arguments in the 'command' field, it can be either a
+        # parameter update (parameter;value) OR a method-with-argument
+        # (method;arg). Prefer calling a plugin method if it exists.
         elif len(event.command) == 2:
-            getattr(plugin, 'set_parameter')(event.command[0], event.command[1])
+            cmd_name, cmd_val = event.command[0], event.command[1]
+            # If plugin exposes a callable with this name, call it with the arg
+            if hasattr(plugin, cmd_name) and callable(getattr(plugin, cmd_name)):
+                try:
+                    getattr(plugin, cmd_name)(cmd_val)
+                except TypeError:
+                    # Fallback: if method signature differs, try without arg
+                    try:
+                        getattr(plugin, cmd_name)()
+                    except Exception:
+                        # As a last resort, set as parameter
+                        getattr(plugin, 'set_parameter')(cmd_name, cmd_val)
+            else:
+                getattr(plugin, 'set_parameter')(cmd_name, cmd_val)
 
         event.done = 1
 
@@ -269,6 +309,33 @@ class Scheduler:
                 self.events_queue.append(event)
 
         return self.unqueue_event()
+
+
+    def reload_events_from_file(self):
+        """Reload events from the scenario file path without re-instantiating plugins.
+        This replaces the scheduler's event list while keeping plugin instances intact.
+        """
+        if not self.scenario_path:
+            return
+        try:
+            with open(self.scenario_path, 'r', encoding='utf-8') as fh:
+                lines = fh.readlines()
+        except Exception:
+            logger.log_manual_entry(f'Failed to read scenario file for reload: {self.scenario_path}', key='scenario_reload')
+            return
+
+        # Parse into Event objects (skip empty/comment lines)
+        new_events = [Event.parse_from_string(line_n, line_str) for line_n, line_str
+                      in enumerate(lines)
+                      if len(line_str.strip()) > 0 and not line_str.startswith('#')]
+
+        # Apply retrocompatibility and basic checks are skipped here to be lightweight.
+        # Reset execution flags and replace events
+        for e in new_events:
+            e.done = 0
+        self.events = new_events
+        self.events_queue = []
+        logger.log_manual_entry(f'Reloaded {len(self.events)} events from {self.scenario_path}', key='scenario_reload')
 
 
     def unqueue_event(self):

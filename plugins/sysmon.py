@@ -448,6 +448,15 @@ class Sysmon(AbstractPlugin):
         for gauge in self.get_all_gauges():
             gauge['widget'].set_label(gauge['name'])
 
+        # Defensive: ensure report parameter structure is a dict (avoid accidental overwrite)
+        if not isinstance(self.parameters.get('report'), dict):
+            self.parameters['report'] = dict(active=False, text='REPORT',
+                                             text_color=C['WHITE'],
+                                             background_color=(139, 0, 0, 255),
+                                             border_color=C['BLACK'],
+                                             duration=7000, font_size=F['LARGE'],
+                                             _timer=None, _visible=False)
+
         # Handle report widget visibility
         if self.parameters['report']['_visible']:
             self.get_widget('report').show()
