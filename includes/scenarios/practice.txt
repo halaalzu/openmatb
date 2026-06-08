@@ -24,7 +24,6 @@
 0:00:20;sysmon;report;Report on performance of Health Bars
 0:00:30;communications;radioprompt;own
 0:00:45;communications;pause;False
-0:01:00;communications;pause;False
 0:01:00;communications;radioprompt;own
 0:01:26;sysmon;report;Report on performance of Health Bars
 0:01:40;track;pause;False
@@ -33,11 +32,9 @@
 0:02:05;sysmon;lights-1-failure;True
 0:02:20;sysmon;scales-1-failure;True
 0:02:25;communications;radioprompt;own
-0:02:30;communications;pause;False
 0:02:35;sysmon;report;Report on performance of Health Bars
 0:02:50;sysmon;scales-2-side;-1
 0:02:50;sysmon;scales-2-failure;True
-0:03:00;sysmon;pause;False
 0:03:00;communications;radioprompt;own
 0:03:10;sysmon;scales-1-failure;True
 0:03:10;sysmon;scales-4-side;-1
