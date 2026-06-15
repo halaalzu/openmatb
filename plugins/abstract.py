@@ -403,7 +403,7 @@ class BlockingPlugin(AbstractPlugin):
     def __init__(self, taskplacement='fullscreen', taskupdatetime=15):
         super().__init__(taskplacement, taskupdatetime)
 
-        self.keys.update({'SPACE'})
+        self.keys.update({'RETURN'})
         new_par = dict(boldtitle=False)
         self.parameters.update(new_par)
 
@@ -506,9 +506,8 @@ class BlockingPlugin(AbstractPlugin):
             return
 
         # Waiting for the key release to advance one slide at the time
-        if keystr.lower() == 'space' and state == 'release':
+        if keystr.lower() == 'return' and state == 'release':
             self.go_to_next_slide = True
-
 
 
 # TODO : Include a Solver class like

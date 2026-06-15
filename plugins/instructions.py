@@ -12,7 +12,7 @@ class Instructions(BlockingPlugin):
 
         self.folder = P['INSTRUCTIONS']
         new_par = dict(filename=None, pointsize=0, maxdurationsec=0,
-                       response=dict(text=_('Press SPACE to continue'), key='SPACE'),
+                       response=dict(text=_('Press ENTER to continue'), key='RETURN'),
                        allowkeypress=True)
         self.parameters.update(new_par)
 

@@ -13,7 +13,7 @@ from core.constants import FONT_SIZES as F, PATHS as P, Group as G, COLORS as C
 from core.utils import get_conf_value
 
 class ModalDialog:
-    def __init__(self, window, msg, title='OpenMATB', continue_key='SPACE', exit_key=None, continue_callback=None, exit_callback=None):
+    def __init__(self, window, msg, title='OpenMATB', continue_key='ENTER', exit_key=None, continue_callback=None, exit_callback=None):
 
         # Allow for drawing of transparent vertices
         glEnable(GL_BLEND)
