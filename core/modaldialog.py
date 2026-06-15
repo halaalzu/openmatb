@@ -48,6 +48,7 @@ class ModalDialog:
         for m in msg:
             html += '<center><p><font face=%s>' % 'sans'
             html += '%s</font></p></center>' % m
+            
         html += '<center><p><em><font face=%s>' % 'sans'
         if exit_key is not None:
             html += '[%s]' % _(exit_key.capitalize())
@@ -57,8 +58,13 @@ class ModalDialog:
             html += '  –  '
 
         if continue_key is not None:
-            html += '[%s]' % _(continue_key.capitalize())
-            html += ' %s' % _('Continue')
+            # Check if this is the Exit Prompt screen
+            if "Exit" in title or "exit" in title.lower():
+                html += '[ENTER] Continue'
+            else:
+                # Fallback for the initial startup splash screen
+                html += 'Press ENTER to Continue'
+            
         html += '</font></em></p></center>'
 
         self.html_label = HTMLLabel(html, x=0, y=0, anchor_x='center', anchor_y='center', 
