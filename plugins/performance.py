@@ -162,4 +162,5 @@ class Performance(AbstractPlugin):
 
         # Display summary; presence of a modal pauses the scheduler update loop until dismissed
         if self.win is not None and self.win.modal_dialog is None:
-            ModalDialog(self.win, msg=lines, title='Final Performance', continue_key='SPACE', exit_key='ESCAPE')
+            # Advance iMotions only when the user explicitly exits (ESCAPE).
+            ModalDialog(self.win, msg=lines, title='Final Performance', continue_key='SPACE', exit_key='ESCAPE', exit_callback=lambda: self.win.imotions_bridge.on_task_end())

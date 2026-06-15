@@ -13,7 +13,7 @@ from core.constants import FONT_SIZES as F, PATHS as P, Group as G, COLORS as C
 from core.utils import get_conf_value
 
 class ModalDialog:
-    def __init__(self, window, msg, title='OpenMATB', continue_key='SPACE', exit_key=None):
+    def __init__(self, window, msg, title='OpenMATB', continue_key='SPACE', exit_key=None, continue_callback=None, exit_callback=None):
 
         # Allow for drawing of transparent vertices
         glEnable(GL_BLEND)
@@ -24,6 +24,8 @@ class ModalDialog:
         self.win.modal_dialog = self
         self.continue_key = continue_key
         self.exit_key = exit_key
+        self.continue_callback = continue_callback
+        self.exit_callback = exit_callback
         self.hide_on_pause = get_conf_value('Openmatb', 'hide_on_pause')
 
         # Hide background ?
@@ -117,11 +119,34 @@ class ModalDialog:
             pass
         self.win.modal_dialog = None
 
+        # Call continue callback if provided
+        try:
+            if self.continue_callback is not None:
+                try:
+                    self.continue_callback()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
 
     def on_exit(self):
         """The user requested to exit OpenMATB"""
+        # If an exit callback is provided, call it. If it returns False,
+        # do not terminate the application. If it returns True or is None,
+        # proceed to exit as before.
+        should_exit = True
+        if self.exit_callback is not None:
+            try:
+                res = self.exit_callback()
+                if res is False:
+                    should_exit = False
+            except Exception:
+                should_exit = True
+
         self.on_delete()
-        self.win.alive = False
+        if should_exit:
+            self.win.alive = False
 
 
     def on_key_release(self, symbol, modifiers):

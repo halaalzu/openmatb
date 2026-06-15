@@ -238,8 +238,9 @@ class Scheduler:
             if (event.command[0] == 'show_summary'
                     and event.plugin == 'performance'
                     and not self.end_signal_sent):
-                # Fire end signal exactly when performance summary appears.
-                self.win.imotions_bridge.on_task_end()
+                # Performance summary appeared. Defer iMotions advance until
+                # the user explicitly exits the summary (handled by the
+                # performance plugin's modal exit callback).
                 self.end_signal_sent = True
 
         # If two arguments in the 'command' field, it can be either a
