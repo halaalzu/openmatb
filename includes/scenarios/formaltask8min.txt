@@ -62,9 +62,9 @@
 0:04:30;communications;radioprompt;own
 0:04:55;communications;radioprompt;own
 0:04:55;sysmon;automaticsolver;False
-0:04:55;sysmon;automationlabel;AUTO
+0:04:55;sysmon;automationlabel;MANUAL
 0:04:55;communications;automaticsolver;False
-0:04:55;communications;automationlabel;AUTO
+0:04:55;communications;automationlabel;MANUAL
 0:05:00;sysmon;scales-4-side;-1
 0:05:00;sysmon;scales-4-failure;True
 0:05:17;sysmon;automaticsolver;True
@@ -77,9 +77,9 @@
 0:05:25;sysmon;scales-1-side;0
 0:05:37;communications;radioprompt;own
 0:05:37;sysmon;automaticsolver;False
-0:05:37;sysmon;automationlabel;AUTO
+0:05:37;sysmon;automationlabel;MANUAL
 0:05:37;communications;automaticsolver;False
-0:05:37;communications;automationlabel;AUTO
+0:05:37;communications;automationlabel;MANUAL
 0:05:38;sysmon;scales-2-side;1
 0:05:38;sysmon;scales-2-failure;True
 0:06:00;sysmon;automaticsolver;True

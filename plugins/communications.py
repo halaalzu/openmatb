@@ -318,6 +318,13 @@ class Communications(AbstractPlugin):
           
 
 
+    def set_parameter(self, keys_str, value):
+        # Auto-unpause when the first real task event arrives (radioprompt)
+        if keys_str == 'radioprompt' and str(value).strip().lower() in ('own', 'other'):
+            if self.is_paused():
+                self.resume()
+        return super().set_parameter(keys_str, value)
+
     def compute_next_plugin_state(self):
         if super().compute_next_plugin_state() == 0:
             return

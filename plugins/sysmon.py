@@ -189,6 +189,21 @@ class Sysmon(AbstractPlugin):
         self._last_automode_indicator_state = False
         self._automation_start_sound = None
         self._automation_start_sound_player = None
+        self._last_scenario_time = None  # For pause-independent report timer
+
+
+    def update(self, scenario_time):
+        # Decrement report banner timer unconditionally (even while paused)
+        # so reports always disappear on schedule regardless of pause state
+        if self._last_scenario_time is not None:
+            elapsed_ms = (scenario_time - self._last_scenario_time) * 1000
+            if self.parameters['report']['_timer'] is not None and elapsed_ms > 0:
+                self.parameters['report']['_timer'] -= elapsed_ms
+                if self.parameters['report']['_timer'] <= 0:
+                    self.parameters['report']['_timer'] = None
+                    self.parameters['report']['_visible'] = False
+        self._last_scenario_time = scenario_time
+        super().update(scenario_time)
 
 
     def get_response_timers(self):
@@ -316,6 +331,14 @@ class Sysmon(AbstractPlugin):
 
 
 
+    def set_parameter(self, keys_str, value):
+        # Auto-unpause when the first real task failure event arrives
+        # (lights-X-failure or scales-X-failure set to True), but NOT for report events
+        if 'failure' in keys_str and str(value).strip().lower() == 'true':
+            if self.is_paused():
+                self.resume()
+        return super().set_parameter(keys_str, value)
+
     def compute_next_plugin_state(self):
         if super().compute_next_plugin_state() == 0:
             return
@@ -370,14 +393,6 @@ class Sysmon(AbstractPlugin):
                 if gauge['_feedbacktimer'] <= 0:
                     gauge['_feedbacktimer'] = None
                     gauge['_feedbacktype'] = None
-
-        # Handle report timer
-        if self.parameters['report']['_timer'] is not None:
-            self.parameters['report']['_timer'] -= self.parameters['taskupdatetime']
-            if self.parameters['report']['_timer'] <= 0:
-                self.parameters['report']['_timer'] = None
-                self.parameters['report']['_visible'] = False
-
 
         # Compute arrows next position
         for scale_n, scale in self.parameters['scales'].items():
