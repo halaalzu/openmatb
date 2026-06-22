@@ -233,7 +233,7 @@ class Scheduler:
             if (event.command[0] == 'start'
                     and event.plugin in self.core_task_plugins
                     and not self.start_signal_sent):
-                self.win.imotions_bridge.on_task_start()
+                pass
                 self.start_signal_sent = True
             if (event.command[0] == 'show_summary'
                     and event.plugin == 'performance'
