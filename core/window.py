@@ -164,8 +164,8 @@ class Window(Window):
 
 
     def exit_prompt(self):
-        self.modal_dialog = ModalDialog(self, _('You hit the Escape key'), title=_('Exit OpenMATB?'), exit_key='q')
-
+        self.imotions_bridge.on_task_end()
+        self.alive = False
 
     def pause_prompt(self):
         self.modal_dialog = ModalDialog(self, _('Pause'))
