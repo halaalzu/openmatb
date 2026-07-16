@@ -104,6 +104,7 @@ class Communications(AbstractPlugin):
         # Flash effect state
         self._flash_timer = 0
         self._flash_visible = False
+        self._unreliable_wrong_frequency_used = False
 
         self.sound_path = P['SOUNDS'].joinpath(self.parameters['voiceidiom'],
                                                self.parameters['voicegender'])
@@ -315,6 +316,33 @@ class Communications(AbstractPlugin):
         if target_frequency is None:
             return False
         return round(radio['currentfreq'], 1) == round(target_frequency, 1)
+
+
+    def _get_automation_mode(self):
+        if self.parameters['automaticsolver'] is True:
+            return 'AUTO'
+        if str(self.parameters.get('automationlabel', '')).strip().upper() == 'AUTO':
+            return 'UNRELIABLE'
+        return 'MANUAL'
+
+
+    def _get_wrong_channel_radio(self, radio):
+        radio_name = str(radio.get('name', ''))
+        station_name = radio_name.split('_', 1)[0]
+        current_radio = self.get_active_radio_dict()
+
+        station_radios = [r for _, r in self.parameters['radios'].items()
+                          if str(r.get('name', '')).split('_', 1)[0] == station_name and r is not radio]
+        if len(station_radios) > 0:
+            if current_radio is None or station_radios[0] != current_radio:
+                return station_radios[0]
+
+        other_radios = [r for _, r in self.parameters['radios'].items()
+                        if r is not radio and r is not current_radio]
+        if len(other_radios) > 0:
+            return other_radios[0]
+
+        return station_radios[0] if len(station_radios) > 0 else None
           
 
 
@@ -338,6 +366,8 @@ class Communications(AbstractPlugin):
         if self.parameters['callsignregex'] != self.old_regex:
             self.regenerate_callsigns()
             self.old_regex = str(self.parameters['callsignregex'])
+
+        current_automation_mode = self._get_automation_mode()
 
 
         if self.parameters['radioprompt'].lower() in ['own', 'other']:
@@ -448,6 +478,38 @@ class Communications(AbstractPlugin):
                         )
                     else:
                         self.confirm_response()
+        elif current_automation_mode == 'UNRELIABLE' and REPLAY_MODE == False:
+            waiting_radios = self.get_waiting_response_radios()
+
+            if len(waiting_radios) > 0:
+                autoradio = waiting_radios[0]
+
+                if '_autosolver_timer' not in autoradio:
+                    autoradio['_autosolver_timer'] = self.parameters['automaticsolverdelay']
+
+                if autoradio['_autosolver_timer'] > 0:
+                    autoradio['_autosolver_timer'] -= self.parameters['taskupdatetime']
+                    return
+                autoradio['_autosolver_timer'] = 0
+
+                if active != autoradio:
+                    active['is_active'] = False
+                    current_index, target_index = (active['pos'], autoradio['pos'])
+                    new_index = current_index + copysign(1, target_index - current_index)
+                    self.get_radio_dict_by_pos(new_index)['is_active'] = True
+                elif self._unreliable_wrong_frequency_used is False:
+                    wrong_target = round(autoradio['targetfreq'] + 0.3, 1)
+                    if wrong_target > self.parameters['airbandmaxMhz']:
+                        wrong_target = round(autoradio['targetfreq'] - 0.3, 1)
+                    autoradio['_unreliable_wrong_targetfreq'] = wrong_target
+                    self._unreliable_wrong_frequency_used = True
+                elif '_unreliable_wrong_targetfreq' in autoradio:
+                    wrong_target = autoradio['_unreliable_wrong_targetfreq']
+                    if round(autoradio['currentfreq'], 1) != round(wrong_target, 1):
+                        autoradio['currentfreq'] = round(
+                            autoradio['currentfreq'] + copysign(0.1, wrong_target - autoradio['currentfreq']),
+                            1
+                        )
 
         active['currentfreq'] = self.keep_value_between(active['currentfreq'],
                                                         up=self.parameters['airbandmaxMhz'],

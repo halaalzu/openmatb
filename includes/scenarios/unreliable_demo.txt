@@ -1,0 +1,13 @@
+# Short demo scenario for unreliable automation and report banner fit
+0:00:00;sysmon;start
+0:00:00;communications;start
+0:00:00;sysmon;displayautomationstate;True
+0:00:00;communications;displayautomationstate;True
+0:00:00;sysmon;automaticsolver;False
+0:00:00;sysmon;automationlabel;AUTO
+0:00:00;communications;automaticsolver;False
+0:00:00;communications;automationlabel;AUTO
+0:00:02;sysmon;report;Demo report text fits the red box
+0:00:03;communications;radioprompt;own
+0:00:25;communications;stop
+0:00:25;sysmon;stop
